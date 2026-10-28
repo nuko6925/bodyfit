@@ -1,0 +1,69 @@
+# タグ v1.2.3 を push すると、パッケージの zip を Release に添付し、VPM リスティング (GitHub Pages) を更新する
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: v
+        run: |
+          name=$(jq -r .name package.json)
+          version=$(jq -r .version package.json)
+          if [ "v$version" != "${GITHUB_REF_NAME}" ]; then
+            echo "タグ ${GITHUB_REF_NAME} と package.json の version $version が一致しません"; exit 1
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "zip=$name-$version.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Build zip
+        run: |
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${{ steps.v.outputs.zip }}"
+          jq --arg url "$url" '.url = $url' package.json > package.tmp && mv package.tmp package.json
+          zip -r "${{ steps.v.outputs.zip }}" . -x ".git/*" ".github/*" "*.zip"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.v.outputs.zip }}
+            package.json
+
+  listing:
+    needs: release
+    if: always() && (needs.release.result == 'success' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build listing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/build_listing.py site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

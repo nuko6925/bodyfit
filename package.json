@@ -1,0 +1,23 @@
+{
+  "name": "tech.chiffon.bodyfit",
+  "displayName": "Body Fit",
+  "version": "0.1.0",
+  "unity": "2022.3",
+  "description": "非対応衣装をアバターの体型に合わせ、体への貫通を BlendShape で補正する NDMF プラグイン。ボーンのスケールを一括適用する Body Scale も同梱。",
+  "author": {
+    "name": "日向",
+    "url": "https://github.com/nuko6925"
+  },
+  "license": "MIT",
+  "licensesUrl": "https://github.com/nuko6925/bodyfit/blob/main/LICENSE.md",
+  "documentationUrl": "https://github.com/nuko6925/bodyfit",
+  "changelogUrl": "https://github.com/nuko6925/bodyfit/blob/main/CHANGELOG.md",
+  "keywords": ["vrchat", "avatar", "modular-avatar", "ndmf", "outfit"],
+  "vpmDependencies": {
+    "com.vrchat.avatars": ">=3.5.0",
+    "nadena.dev.ndmf": ">=1.4.0",
+    "nadena.dev.modular-avatar": ">=1.9.0"
+  },
+  "legacyFolders": {},
+  "url": ""
+}
