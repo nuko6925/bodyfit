@@ -561,16 +561,96 @@ namespace Hinata.BodyFit.Editor
                 .ToList();
         }
 
+        static readonly Dictionary<int, (double time, SkinnedMeshRenderer result)> _autoBodyCache =
+            new Dictionary<int, (double, SkinnedMeshRenderer)>();
+
+        /// <summary>
+        /// 体 (胴体) のメッシュを自動で探す。VRChat 向けアバターは「Body = 頭部」のことが多いので名前では決めず、
+        /// アバター自身の Humanoid ボーンのうち、胴・腕・脚・手・足の何か所にウェイトが乗っているかで選ぶ。
+        /// 頭・首だけのメッシュや、まだ統合されていない衣装 (自前のボーンに付いている) は選ばれない。
+        /// </summary>
         internal static SkinnedMeshRenderer FindAutoBody(Transform avatarRoot, BodyFitter fitter)
         {
+            // Inspector から毎フレーム呼ばれるので短時間キャッシュする
+            double now = UnityEditor.EditorApplication.timeSinceStartup;
+            int key = fitter.GetInstanceID();
+            if (_autoBodyCache.TryGetValue(key, out var c) && now - c.time < 2.0 && c.result != null) return c.result;
+
             var own = new HashSet<SkinnedMeshRenderer>(fitter.GetComponentsInChildren<SkinnedMeshRenderer>(true));
             var candidates = avatarRoot.GetComponentsInChildren<SkinnedMeshRenderer>(true)
                 .Where(s => s.sharedMesh != null && !own.Contains(s))
                 .ToList();
 
-            return candidates.FirstOrDefault(s => s.name.Equals("Body", System.StringComparison.OrdinalIgnoreCase))
-                   ?? candidates.FirstOrDefault(s => s.transform.parent == avatarRoot &&
-                                                     s.name.ToLowerInvariant().Contains("body"));
+            var result = FindBodyByWeights(avatarRoot, candidates)
+                         ?? candidates.FirstOrDefault(s => s.name.Equals("Body", System.StringComparison.OrdinalIgnoreCase))
+                         ?? candidates.FirstOrDefault(s => s.transform.parent == avatarRoot &&
+                                                           s.name.ToLowerInvariant().Contains("body"));
+            _autoBodyCache[key] = (now, result);
+            return result;
+        }
+
+        static SkinnedMeshRenderer FindBodyByWeights(Transform avatarRoot, List<SkinnedMeshRenderer> candidates)
+        {
+            var animator = avatarRoot.GetComponent<Animator>();
+            if (animator == null || !animator.isHuman) return null;
+
+            // Humanoid ボーン → 部位番号 (頭・首・目・顎は対象外、指は手にまとめる)
+            var region = new Dictionary<Transform, int>();
+            for (var hb = HumanBodyBones.Hips; hb < HumanBodyBones.LastBone; hb++)
+            {
+                var t = animator.GetBoneTransform(hb);
+                if (t == null) continue;
+                int r;
+                switch (hb)
+                {
+                    case HumanBodyBones.Head: case HumanBodyBones.Neck: case HumanBodyBones.Jaw:
+                    case HumanBodyBones.LeftEye: case HumanBodyBones.RightEye:
+                        r = -1; break;
+                    default:
+                        if (hb >= HumanBodyBones.LeftThumbProximal && hb <= HumanBodyBones.LeftLittleDistal) r = (int)HumanBodyBones.LeftHand;
+                        else if (hb >= HumanBodyBones.RightThumbProximal && hb <= HumanBodyBones.RightLittleDistal) r = (int)HumanBodyBones.RightHand;
+                        else r = (int)hb;
+                        break;
+                }
+                region[t] = r;
+            }
+
+            SkinnedMeshRenderer best = null;
+            int bestRegions = 0, bestVerts = 0;
+            foreach (var smr in candidates)
+            {
+                var mesh = smr.sharedMesh;
+                var bones = smr.bones;
+                if (bones.Length == 0) continue;
+
+                var boneRegion = new int[bones.Length];
+                for (int i = 0; i < bones.Length; i++)
+                {
+                    boneRegion[i] = -2; // アバターの Humanoid ボーンの下にない
+                    for (var t = bones[i]; t != null && t != avatarRoot; t = t.parent)
+                        if (region.TryGetValue(t, out var r)) { boneRegion[i] = r; break; }
+                }
+
+                var bpv = mesh.GetBonesPerVertex();
+                var weights = mesh.GetAllBoneWeights();
+                if (bpv.Length == 0) continue;
+                var seen = new HashSet<int>();
+                int verts = 0, wi = 0;
+                for (int v = 0; v < bpv.Length; v++)
+                {
+                    float bw = -1f; int bi = -1;
+                    for (int k = 0; k < bpv[v]; k++, wi++)
+                        if (weights[wi].weight > bw) { bw = weights[wi].weight; bi = weights[wi].boneIndex; }
+                    if (bi < 0 || bi >= boneRegion.Length || boneRegion[bi] < 0) continue;
+                    seen.Add(boneRegion[bi]);
+                    verts++;
+                }
+
+                // 部位の数を優先 (体は手足まであるが、服は手・足がないことが多い)、同じなら頂点数
+                if (seen.Count > bestRegions || (seen.Count == bestRegions && verts > bestVerts))
+                { best = smr; bestRegions = seen.Count; bestVerts = verts; }
+            }
+            return bestRegions >= 3 ? best : null;
         }
 
         static HashSet<Transform> BuildExcludeSet(BodyFitter f)
