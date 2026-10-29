@@ -1,0 +1,17 @@
+name: 要望
+description: 新しい機能や改善の提案
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 困っていること
+      description: どんな衣装・アバターで、何をしたいときに困っているか
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: こうなってほしい
+      description: 思いついた解決方法があれば (なくても大丈夫です)

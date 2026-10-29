@@ -1,0 +1,89 @@
+name: 不具合報告
+description: 貫通が残る・変形が崩れる・エラーが出るなど
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        報告ありがとうございます。再現できる情報が多いほど早く直せます。
+        アバターや衣装のデータそのものは添付しないでください (各商品の規約違反になります)。
+
+  - type: input
+    id: version
+    attributes:
+      label: Body Fit のバージョン
+      description: VCC の Manage Project で確認できます
+      placeholder: 例) 0.1.1
+    validations:
+      required: true
+
+  - type: input
+    id: avatar
+    attributes:
+      label: アバター
+      description: 商品名 (BOOTH の URL があると助かります)
+      placeholder: 例) 〇〇 ver1.2 https://booth.pm/...
+    validations:
+      required: true
+
+  - type: input
+    id: outfit
+    attributes:
+      label: 衣装
+      description: 商品名と、どのアバター向けの衣装か
+      placeholder: 例) 〇〇 (△△ 対応) https://booth.pm/...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 症状の種類
+      options:
+        - 貫通が残る
+        - 衣装が崩れる・不自然に変形する
+        - 体型 (太さ) が合わない
+        - 靴・足まわり
+        - エラーが出る / 動かない
+        - その他
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 症状
+      description: どこが、どうなっているか。期待していた状態も書いてください
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: スクリーンショット
+      description: |
+        Body Fit なし / あり の比較と、プレビュー中のデバッグ表示 (色付きの線) が写ったものがあると原因を追いやすいです。
+        画像はここにドラッグ＆ドロップで貼れます。
+
+  - type: textarea
+    id: log
+    attributes:
+      label: ログ
+      description: |
+        Body Fitter の 詳細設定 > その他 > Verbose Log をオンにしてプレビューし、Console に出る [BodyFit] のログを貼ってください。
+        エラーが出ている場合は、そのエラーの全文もお願いします。
+      render: text
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: 変更した設定
+      description: 既定値から変えた設定や、Per Mesh の個別設定 (skip / tight / layer など) があれば
+      placeholder: 例) Stocking を tight、Skirt の裾のボーンを Exclude Bones に追加
+
+  - type: input
+    id: env
+    attributes:
+      label: 環境
+      description: Unity / Modular Avatar / NDMF のバージョン
+      placeholder: 例) Unity 2022.3.22f1 / MA 1.13.0 / NDMF 1.7.0
