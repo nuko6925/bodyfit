@@ -64,7 +64,7 @@ namespace Hinata.BodyFit.Editor
 
                 // 関節合わせ: Merge Armature が統合する前に、衣装のボーンをアバターの対応ボーンの位置へ移す
                 // (MA の「ベースアバターに位置を合わせる」をビルド時に行うのと同じ。アバター側の体型変更後の位置に合う)
-                if (fitter.alignJoints) job.JointLog = AlignJoints(fitter, fitter.verboseLog);
+                if (fitter.alignJoints) job.JointLog = AlignJoints(fitter, fitter.verboseLog, root.GetComponent<Animator>());
 
                 job.Targets = ResolveTargets(fitter, job.Bodies);
                 foreach (var o in fitter.perMesh)
@@ -185,6 +185,8 @@ namespace Hinata.BodyFit.Editor
                         int hidden = HideFeet(b, bp, hm.mask, hm.left, hm.right);
                         log.AppendLine($"  {b.name}: 靴の中の足 {hidden} 頂点を BlendShape \"BodyFit_HideFeet\" で隠しました");
                     }
+                    // 胸の先などの細かい凹凸を、布が張ったようにならしてから判定に使う (服に体の細部が浮き出ない)
+                    if (f.bodySmoothing > 0f) BodyFitSolver.Envelope(bp, f.bodySmoothing);
                     collider.Add(bp, BodyFitSolver.Pose(b, b.sharedMesh, applyBlendShapes: false), ign,
                                  Limb.OfVertices(b, b.sharedMesh, limbRoots));
                     if (verbose)
@@ -408,8 +410,18 @@ namespace Hinata.BodyFit.Editor
             return res;
         }
 
-        static string AlignJoints(BodyFitter fitter, bool verbose)
+        static string AlignJoints(BodyFitter fitter, bool verbose, Animator animator)
         {
+            // 手・足の下 (指) は、名前で対応が取れないボーンを方向で対応付ける
+            var dirParents = new HashSet<Transform>();
+            if (animator != null && animator.isHuman)
+                foreach (var hb in new[] { HumanBodyBones.LeftHand, HumanBodyBones.RightHand, HumanBodyBones.LeftFoot, HumanBodyBones.RightFoot })
+                {
+                    var t = animator.GetBoneTransform(hb);
+                    if (t != null) dirParents.Add(t);
+                }
+            var renamed = new List<string>();
+
             var mergers = fitter.GetComponentsInChildren<nadena.dev.modular_avatar.core.ModularAvatarMergeArmature>(true);
             if (mergers.Length == 0)
             {
@@ -428,7 +440,7 @@ namespace Hinata.BodyFit.Editor
                 var target = m.mergeTarget.Get(m);
                 // MA の GetBonesMapping は名前の完全一致のみで、実際の統合 (正規化した名前で照合) より対応が少ない。
                 // ここでも正規化した名前で照合する (Upperleg_L ↔ Upper_leg_L 等)
-                var pairs = target != null ? MapBones(m, target.transform) : null;
+                var pairs = target != null ? MapBones(m, target.transform, dirParents, renamed) : null;
                 diag.Add($"{m.name}→{(target != null ? target.name : "null")} 対応 {(pairs == null ? "null" : pairs.Count.ToString())}組");
                 if (pairs == null) continue;
                 pairCount += pairs.Count;
@@ -478,35 +490,79 @@ namespace Hinata.BodyFit.Editor
                              : $"  関節合わせ: 位置のずれなし (対応 {pairCount} 組)");
             if (ns > 0) msg += $"\n  関節合わせ: {ns} ボーンのスケールをアバターに合わせた" + (verbose ? $" ({string.Join(", ", scaled)})" : "");
             if (nAdj > 0) msg += $"\n  関節合わせ: {nAdj} ボーンにアバターと同じ Scale Adjuster を追加" + (verbose ? $" ({string.Join(", ", adjusted)})" : "");
+            if (renamed.Count > 0)
+                msg += $"\n  関節合わせ: 名前の違う指などのボーン {renamed.Count} 本を方向で対応付け、アバターの名前に変更" +
+                       (verbose ? $" ({string.Join(", ", renamed.Take(12))})" : "");
             return msg;
         }
 
-        static List<(Transform, Transform)> MapBones(nadena.dev.modular_avatar.core.ModularAvatarMergeArmature m, Transform baseRoot)
+        /// <param name="dirParents">この下では、名前で対応しないボーンを方向で対応付ける (アバターの手・足)</param>
+        /// <param name="renamed">方向で対応付けて名前を変えたボーン (ログ用)</param>
+        static List<(Transform, Transform)> MapBones(nadena.dev.modular_avatar.core.ModularAvatarMergeArmature m, Transform baseRoot,
+                                                     HashSet<Transform> dirParents = null, List<string> renamed = null)
         {
             var result = new List<(Transform, Transform)>();
             string prefix = m.prefix ?? "", suffix = m.suffix ?? "";
 
-            void Scan(Transform merge, Transform baseBone)
+            void Scan(Transform merge, Transform baseBone, bool byDir)
             {
+                byDir |= dirParents != null && dirParents.Contains(baseBone);
                 var baseChildren = new Dictionary<string, Transform>();
                 foreach (Transform c in baseBone)
                 {
                     var key = NormalizeBone(c.name);
                     if (!baseChildren.ContainsKey(key)) baseChildren[key] = c;
                 }
+                var used = new HashSet<Transform>();
+                var unmatched = new List<Transform>();
                 foreach (Transform t in merge)
                 {
                     if (t.GetComponent<nadena.dev.modular_avatar.core.ModularAvatarMergeArmature>() != null) continue;
                     var name = t.name;
                     if (prefix.Length > 0 && name.StartsWith(prefix)) name = name.Substring(prefix.Length);
                     if (suffix.Length > 0 && name.EndsWith(suffix)) name = name.Substring(0, name.Length - suffix.Length);
-                    if (!baseChildren.TryGetValue(NormalizeBone(name), out var b)) continue;
+                    if (!baseChildren.TryGetValue(NormalizeBone(name), out var b)) { unmatched.Add(t); continue; }
+                    used.Add(b);
                     result.Add((b, t));
-                    Scan(t, b);
+                    Scan(t, b, byDir);
+                }
+
+                // 指のように、クリエイターごとに名前の付け方が違うボーン: 親からの向きと長さが近いものを対応付ける。
+                // 衣装側の名前をアバターに合わせ、MA がボーンを統合できるようにする (統合されないと手袋の指が手の動きに付いてこない)
+                if (!byDir || unmatched.Count == 0) return;
+                var cands = new List<(Transform t, Transform b, float score)>();
+                foreach (var t in unmatched)
+                {
+                    var vt = t.position - merge.position;
+                    if (vt.sqrMagnitude < 1e-8f) continue;
+                    foreach (Transform b in baseBone)
+                    {
+                        if (used.Contains(b)) continue;
+                        var vb = b.position - baseBone.position;
+                        if (vb.sqrMagnitude < 1e-8f) continue;
+                        float dot = Vector3.Dot(vt.normalized, vb.normalized);
+                        float lenRatio = vt.magnitude / vb.magnitude;
+                        if (dot < 0.85f || lenRatio < 0.5f || lenRatio > 2f) continue;
+                        cands.Add((t, b, dot));
+                    }
+                }
+                var takenT = new HashSet<Transform>();
+                foreach (var (t, b, _) in cands.OrderByDescending(c => c.score))
+                {
+                    if (takenT.Contains(t) || used.Contains(b)) continue;
+                    takenT.Add(t); used.Add(b);
+                    var newName = prefix + b.name + suffix;
+                    if (t.name != newName)
+                    {
+                        renamed?.Add($"{t.name}→{newName}");
+                        t.name = newName;
+                    }
+                    result.Add((b, t));
+                    Scan(t, b, true);
                 }
             }
 
-            Scan(m.transform, baseRoot);
+            Scan(m.transform, baseRoot, false);
             return result;
         }
 

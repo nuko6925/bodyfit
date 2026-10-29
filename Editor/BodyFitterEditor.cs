@@ -51,6 +51,7 @@ namespace Hinata.BodyFit.Editor
                         Prop(nameof(BodyFitter.margin));
                         Prop(nameof(BodyFitter.maxDistance));
                         Prop(nameof(BodyFitter.reverseDepth));
+                        Prop(nameof(BodyFitter.bodySmoothing));
                         Prop(nameof(BodyFitter.falloff));
                         Prop(nameof(BodyFitter.solverIterations));
                         Prop(nameof(BodyFitter.layerFollowDistance));

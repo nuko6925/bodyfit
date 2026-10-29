@@ -834,6 +834,59 @@ namespace Hinata.BodyFit.Editor
 
         // ===================================================================
 
+        /// <summary>
+        /// 体の表面を「布を張った形」に近づける。各点を、隣接点の平均がそれより外側にあれば法線方向にだけ持ち上げる処理を繰り返す。
+        /// 凹んだ所 (谷間・へそ・突起の根元) が埋まり、小さな突起は裾の広いなだらかな山になる。突起そのものは削らない。
+        /// </summary>
+        /// <param name="radius">ならす範囲 (m)。おおよそこの距離まで突起の裾が広がる</param>
+        internal static void Envelope(Posed p, float radius)
+        {
+            var w = p.World;
+            var weld = Weld(w, out int gc);
+            var pos = new Vector3[gc];
+            var cnt = new int[gc];
+            for (int i = 0; i < w.Length; i++) { pos[weld[i]] += w[i]; cnt[weld[i]]++; }
+            for (int g = 0; g < gc; g++) if (cnt[g] > 0) pos[g] /= cnt[g];
+
+            var tris = p.Triangles;
+            var nrm = new Vector3[gc];
+            for (int i = 0; i + 2 < tris.Length; i += 3)
+            {
+                int a = weld[tris[i]], b = weld[tris[i + 1]], c = weld[tris[i + 2]];
+                var cr = Vector3.Cross(pos[b] - pos[a], pos[c] - pos[a]);
+                nrm[a] += cr; nrm[b] += cr; nrm[c] += cr;
+            }
+            for (int g = 0; g < gc; g++) nrm[g] = nrm[g].normalized;
+
+            var adj = BuildAdjacency(tris, weld, gc);
+            double es = 0; int ec = 0;
+            for (int g = 0; g < gc; g++) foreach (var q in adj[g]) if (q > g) { es += (pos[g] - pos[q]).magnitude; ec++; }
+            float edge = ec > 0 ? (float)(es / ec) : 0.005f;
+            // 拡散の広がりは おおよそ 辺の長さ × √反復回数
+            float k = radius / Mathf.Max(edge, 1e-4f);
+            int iters = Mathf.Clamp(Mathf.RoundToInt(k * k), 1, 400);
+
+            var cur = (Vector3[])pos.Clone();
+            var next = new Vector3[gc];
+            for (int it = 0; it < iters; it++)
+            {
+                Parallel.For(0, gc, g =>
+                {
+                    next[g] = cur[g];
+                    var nb = adj[g];
+                    if (nb.Length == 0 || nrm[g].sqrMagnitude < 0.5f) return;
+                    var avg = Vector3.zero;
+                    foreach (var q in nb) avg += cur[q];
+                    avg /= nb.Length;
+                    float d = Vector3.Dot(avg - cur[g], nrm[g]);
+                    if (d > 0f) next[g] = cur[g] + nrm[g] * d;
+                });
+                (cur, next) = (next, cur);
+            }
+
+            for (int i = 0; i < w.Length; i++) w[i] += cur[weld[i]] - pos[weld[i]];
+        }
+
         /// <summary>位置が(ほぼ)同じ頂点を同じグループにまとめる。</summary>
         static int[] Weld(Vector3[] pos, out int groupCount)
         {

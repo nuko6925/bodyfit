@@ -88,6 +88,9 @@ namespace Hinata.BodyFit
         [Tooltip("体が衣装の面を突き抜けている箇所 (粗いポリゴンの面の中央から胸の先端が出る等) を、この深さまで検出する (m)。0 で無効")]
         [Min(0f)] public float reverseDepth = 0.02f;
 
+        [Tooltip("体の細かい凹凸 (胸の先・へそ・谷間など) を、布が張ったようにならしてから判定する範囲 (m)。服に体の細部の形が浮き出るのを防ぐ。0 で無効")]
+        [Min(0f)] public float bodySmoothing = 0.015f;
+
         [Tooltip("押し出した部分の周囲がなじむ範囲 (m)")]
         [Min(0.001f)] public float falloff = 0.03f;
 
