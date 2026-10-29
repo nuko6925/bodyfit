@@ -497,18 +497,10 @@ namespace Hinata.BodyFit.Editor
 
                     // ボーン自体のスケール (BSA の Upper_leg 0.8 等) も揃える。
                     // MA は位置しか合わせないので、アバター側だけ縮めると、衣装 (特に統合で付け替えられる靴などの子) が元の大きさのまま残る
-                    // ワールドでの大きさ (lossyScale) を揃える。ローカルスケールだけだと、衣装のルートや Armature に
-                    // アバターと違う倍率が付いている場合 (衣装にもルートの縮小を適用した等) に、衣装全体が小さい/大きいまま残る
-                    var pl = mergeBone.parent != null ? mergeBone.parent.lossyScale : Vector3.one;
-                    var bl = baseBone.lossyScale;
-                    var want = new Vector3(
-                        Mathf.Abs(pl.x) > 1e-6f ? bl.x / pl.x : mergeBone.localScale.x,
-                        Mathf.Abs(pl.y) > 1e-6f ? bl.y / pl.y : mergeBone.localScale.y,
-                        Mathf.Abs(pl.z) > 1e-6f ? bl.z / pl.z : mergeBone.localScale.z);
-                    if ((want - mergeBone.localScale).sqrMagnitude > 1e-8f)
+                    if ((baseBone.localScale - mergeBone.localScale).sqrMagnitude > 1e-8f)
                     {
-                        if (scaled.Count < 8) scaled.Add($"{mergeBone.name} x{mergeBone.localScale.x:0.###}→{want.x:0.###}");
-                        mergeBone.localScale = want;
+                        if (scaled.Count < 8) scaled.Add($"{mergeBone.name} x{baseBone.localScale.x:0.###}");
+                        mergeBone.localScale = baseBone.localScale;
                         ns++;
                     }
 
