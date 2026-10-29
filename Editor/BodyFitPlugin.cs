@@ -468,12 +468,8 @@ namespace Hinata.BodyFit.Editor
                     for (var c = t.parent; c != null; c = c.parent) if (dirParents.Contains(c)) return true;
                     return false;
                 }
-                // 手と指 (足は靴があるので対象外): 子までの骨の長さの比で大きさも合わせる (体型合わせは手を扱わないため)
-                bool IsHandOrFinger(Transform t)
-                {
-                    for (var c = t; c != null; c = c.parent) if (hands.Contains(c)) return true;
-                    return false;
-                }
+                // 手 (手のひら) は、指の付け根までの長さの比で大きさも合わせる (体型合わせは手を扱わないため)。
+                // 指は拡縮しない: 長さの比で縮めると太さも細くなり、アバターの指に内側から押し出される。長さの違いは位置合わせで足りる
                 var childrenOf = new Dictionary<Transform, List<(Transform merge, Transform bas)>>();
                 foreach (var (b1, m1) in pairs)
                 {
@@ -515,7 +511,7 @@ namespace Hinata.BodyFit.Editor
                         if (adjusted.Count < 8) adjusted.Add($"{mergeBone.name} ({baseAdj.Scale.x:0.##}, {baseAdj.Scale.y:0.##}, {baseAdj.Scale.z:0.##})");
                     }
 
-                    if (IsHandOrFinger(baseBone) && childrenOf.TryGetValue(mergeBone, out var kids))
+                    if (hands.Contains(baseBone) && childrenOf.TryGetValue(mergeBone, out var kids))
                     {
                         float rs = 0f; int rn = 0;
                         foreach (var (km, kb) in kids)
@@ -566,7 +562,7 @@ namespace Hinata.BodyFit.Editor
             if (ns > 0) msg += $"\n  関節合わせ: {ns} ボーンのスケールをアバターに合わせた" + (verbose ? $" ({string.Join(", ", scaled)})" : "");
             if (nAdj > 0) msg += $"\n  関節合わせ: {nAdj} ボーンにアバターと同じ Scale Adjuster を追加" + (verbose ? $" ({string.Join(", ", adjusted)})" : "");
             if (nRot > 0) msg += $"\n  関節合わせ: 指など {nRot} ボーンの向きをアバターに合わせた";
-            if (nHand > 0) msg += $"\n  関節合わせ: 手・指 {nHand} ボーンの大きさを骨の長さに合わせた" + (verbose ? $" ({string.Join(", ", handLog)})" : "");
+            if (nHand > 0) msg += $"\n  関節合わせ: 手 {nHand} ボーンの大きさを骨の長さに合わせた" + (verbose ? $" ({string.Join(", ", handLog)})" : "");
             if (renamed.Count > 0)
                 msg += $"\n  関節合わせ: 名前の違う指などのボーン {renamed.Count} 本を方向で対応付け、アバターの名前に変更" +
                        (verbose ? $" ({string.Join(", ", renamed.Take(12))})" : "");
