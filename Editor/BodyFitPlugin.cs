@@ -432,7 +432,15 @@ namespace Hinata.BodyFit.Editor
 
             int n = 0, ns = 0; float max = 0f; string maxName = "";
             var scaled = new List<string>();
-            int pairCount = 0, nAdj = 0, nRot = 0;
+            int pairCount = 0, nAdj = 0, nRot = 0, nHand = 0;
+            var handLog = new List<string>();
+            var hands = new HashSet<Transform>();
+            if (animator != null && animator.isHuman)
+                foreach (var hb in new[] { HumanBodyBones.LeftHand, HumanBodyBones.RightHand })
+                {
+                    var t = animator.GetBoneTransform(hb);
+                    if (t != null) hands.Add(t);
+                }
             var adjusted = new List<string>();
             var diag = new List<string>();
             foreach (var m in mergers)
@@ -459,6 +467,19 @@ namespace Hinata.BodyFit.Editor
                 {
                     for (var c = t.parent; c != null; c = c.parent) if (dirParents.Contains(c)) return true;
                     return false;
+                }
+                // 手と指 (足は靴があるので対象外): 子までの骨の長さの比で大きさも合わせる (体型合わせは手を扱わないため)
+                bool IsHandOrFinger(Transform t)
+                {
+                    for (var c = t; c != null; c = c.parent) if (hands.Contains(c)) return true;
+                    return false;
+                }
+                var childrenOf = new Dictionary<Transform, List<(Transform merge, Transform bas)>>();
+                foreach (var (b1, m1) in pairs)
+                {
+                    if (b1 == null || m1 == null || m1.parent == null) continue;
+                    if (!childrenOf.TryGetValue(m1.parent, out var l1)) childrenOf[m1.parent] = l1 = new List<(Transform, Transform)>();
+                    l1.Add((m1, b1));
                 }
                 var childPair = new Dictionary<Transform, (Transform merge, Transform bas)>();
                 var childCount = new Dictionary<Transform, int>();
@@ -494,6 +515,28 @@ namespace Hinata.BodyFit.Editor
                         if (adjusted.Count < 8) adjusted.Add($"{mergeBone.name} ({baseAdj.Scale.x:0.##}, {baseAdj.Scale.y:0.##}, {baseAdj.Scale.z:0.##})");
                     }
 
+                    if (IsHandOrFinger(baseBone) && childrenOf.TryGetValue(mergeBone, out var kids))
+                    {
+                        float rs = 0f; int rn = 0;
+                        foreach (var (km, kb) in kids)
+                        {
+                            if (kb.parent != baseBone) continue;
+                            float lm = (km.position - mergeBone.position).magnitude;
+                            float lb = (kb.position - baseBone.position).magnitude;
+                            if (lm > 1e-4f && lb > 1e-4f) { rs += lb / lm; rn++; }
+                        }
+                        if (rn > 0)
+                        {
+                            float ratio = Mathf.Clamp(rs / rn, 0.7f, 1.5f);
+                            if (Mathf.Abs(ratio - 1f) > 0.02f)
+                            {
+                                mergeBone.localScale *= ratio;
+                                nHand++;
+                                if (handLog.Count < 6) handLog.Add($"{mergeBone.name} x{ratio:0.00}");
+                            }
+                        }
+                    }
+
                     var d = (baseBone.position - mergeBone.position).magnitude;
                     if (d >= 1e-5f)
                     {
@@ -523,6 +566,7 @@ namespace Hinata.BodyFit.Editor
             if (ns > 0) msg += $"\n  関節合わせ: {ns} ボーンのスケールをアバターに合わせた" + (verbose ? $" ({string.Join(", ", scaled)})" : "");
             if (nAdj > 0) msg += $"\n  関節合わせ: {nAdj} ボーンにアバターと同じ Scale Adjuster を追加" + (verbose ? $" ({string.Join(", ", adjusted)})" : "");
             if (nRot > 0) msg += $"\n  関節合わせ: 指など {nRot} ボーンの向きをアバターに合わせた";
+            if (nHand > 0) msg += $"\n  関節合わせ: 手・指 {nHand} ボーンの大きさを骨の長さに合わせた" + (verbose ? $" ({string.Join(", ", handLog)})" : "");
             if (renamed.Count > 0)
                 msg += $"\n  関節合わせ: 名前の違う指などのボーン {renamed.Count} 本を方向で対応付け、アバターの名前に変更" +
                        (verbose ? $" ({string.Join(", ", renamed.Take(12))})" : "");
