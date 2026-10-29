@@ -432,7 +432,7 @@ namespace Hinata.BodyFit.Editor
 
             int n = 0, ns = 0; float max = 0f; string maxName = "";
             var scaled = new List<string>();
-            int pairCount = 0, nAdj = 0;
+            int pairCount = 0, nAdj = 0, nRot = 0;
             var adjusted = new List<string>();
             var diag = new List<string>();
             foreach (var m in mergers)
@@ -453,6 +453,22 @@ namespace Hinata.BodyFit.Editor
                 }
 
                 int Depth(Transform t) { int d = 0; for (var c = t; c != null; c = c.parent) d++; return d; }
+                // 指 (手・足の下) は、位置に加えて骨の向きも合わせる。
+                // 位置だけだと、指の付け根の骨に付いたメッシュ (手袋の指の筒) が元の向きのまま残り、アバターの指と交差する
+                bool UnderHandOrFoot(Transform t)
+                {
+                    for (var c = t.parent; c != null; c = c.parent) if (dirParents.Contains(c)) return true;
+                    return false;
+                }
+                var childPair = new Dictionary<Transform, (Transform merge, Transform bas)>();
+                var childCount = new Dictionary<Transform, int>();
+                foreach (var (b1, m1) in pairs)
+                {
+                    if (b1 == null || m1 == null || m1.parent == null) continue;
+                    childCount.TryGetValue(m1.parent, out int cc);
+                    childCount[m1.parent] = cc + 1;
+                    childPair[m1.parent] = (m1, b1);
+                }
                 // 親から順に合わせる (親を動かすと子も動くので、その後で子を合わせる。対応のない子は親に付いていく)
                 foreach (var (baseBone, mergeBone) in pairs.OrderBy(p => Depth(p.Item2)))
                 {
@@ -479,10 +495,26 @@ namespace Hinata.BodyFit.Editor
                     }
 
                     var d = (baseBone.position - mergeBone.position).magnitude;
-                    if (d < 1e-5f) continue;
-                    mergeBone.position = baseBone.position;
-                    n++;
-                    if (d > max) { max = d; maxName = mergeBone.name; }
+                    if (d >= 1e-5f)
+                    {
+                        mergeBone.position = baseBone.position;
+                        n++;
+                        if (d > max) { max = d; maxName = mergeBone.name; }
+                    }
+
+                    // 指の骨の向き: 子が 1 本だけの骨を、子の方向がアバターと同じになるよう回す
+                    if (UnderHandOrFoot(baseBone) &&
+                        childCount.TryGetValue(mergeBone, out int nc) && nc == 1 &&
+                        childPair.TryGetValue(mergeBone, out var cp) && cp.bas.parent == baseBone)
+                    {
+                        var from = cp.merge.position - mergeBone.position;
+                        var to = cp.bas.position - baseBone.position;
+                        if (from.sqrMagnitude > 1e-10f && to.sqrMagnitude > 1e-10f && Vector3.Angle(from, to) > 0.5f)
+                        {
+                            mergeBone.rotation = Quaternion.FromToRotation(from, to) * mergeBone.rotation;
+                            nRot++;
+                        }
+                    }
                 }
             }
             var msg = (verbose ? $"  関節合わせ: Merge Armature {mergers.Length} 個 / {string.Join(" / ", diag)}\n" : "") +
@@ -490,6 +522,7 @@ namespace Hinata.BodyFit.Editor
                              : $"  関節合わせ: 位置のずれなし (対応 {pairCount} 組)");
             if (ns > 0) msg += $"\n  関節合わせ: {ns} ボーンのスケールをアバターに合わせた" + (verbose ? $" ({string.Join(", ", scaled)})" : "");
             if (nAdj > 0) msg += $"\n  関節合わせ: {nAdj} ボーンにアバターと同じ Scale Adjuster を追加" + (verbose ? $" ({string.Join(", ", adjusted)})" : "");
+            if (nRot > 0) msg += $"\n  関節合わせ: 指など {nRot} ボーンの向きをアバターに合わせた";
             if (renamed.Count > 0)
                 msg += $"\n  関節合わせ: 名前の違う指などのボーン {renamed.Count} 本を方向で対応付け、アバターの名前に変更" +
                        (verbose ? $" ({string.Join(", ", renamed.Take(12))})" : "");

@@ -866,6 +866,8 @@ namespace Hinata.BodyFit.Editor
             float k = radius / Mathf.Max(edge, 1e-4f);
             int iters = Mathf.Clamp(Mathf.RoundToInt(k * k), 1, 400);
 
+            // 持ち上げる量の上限。小さな突起の根元は埋めるが、谷間のような大きなくぼみは埋めすぎない
+            float maxLift = radius * 0.2f;
             var cur = (Vector3[])pos.Clone();
             var next = new Vector3[gc];
             for (int it = 0; it < iters; it++)
@@ -879,6 +881,9 @@ namespace Hinata.BodyFit.Editor
                     foreach (var q in nb) avg += cur[q];
                     avg /= nb.Length;
                     float d = Vector3.Dot(avg - cur[g], nrm[g]);
+                    if (d <= 0f) return;
+                    float lifted = Vector3.Dot(cur[g] - pos[g], nrm[g]);
+                    d = Mathf.Min(d, maxLift - lifted);
                     if (d > 0f) next[g] = cur[g] + nrm[g] * d;
                 });
                 (cur, next) = (next, cur);
