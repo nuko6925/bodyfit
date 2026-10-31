@@ -534,7 +534,7 @@ namespace Hinata.BodyFit.Editor
                     // アバター側の MA Scale Adjuster (BSA の太さ調整) も衣装側へ写す。
                     // Scale Adjuster はそのボーンに直接割り当てられたメッシュにしか効かないので、衣装には効かない
                     var baseAdj = baseBone.GetComponent<nadena.dev.modular_avatar.core.ModularAvatarScaleAdjuster>();
-                    if (baseAdj != null && mergeBone.GetComponent<nadena.dev.modular_avatar.core.ModularAvatarScaleAdjuster>() == null)
+                    if (fitter.copyScaleAdjusters && baseAdj != null && mergeBone.GetComponent<nadena.dev.modular_avatar.core.ModularAvatarScaleAdjuster>() == null)
                     {
                         var adj = mergeBone.gameObject.AddComponent<nadena.dev.modular_avatar.core.ModularAvatarScaleAdjuster>();
                         adj.Scale = baseAdj.Scale;
