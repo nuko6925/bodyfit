@@ -171,6 +171,10 @@ namespace Hinata.BodyFit.Editor
 
                 // 3. 体の当たり判定
                 var limbRoots = Limb.Roots(ctx.AvatarRootObject.GetComponent<Animator>());
+                // デバッグ表示は Hips 基準で記録する (後から別のツールが Armature を動かしても表示がずれない)
+                var anim = ctx.AvatarRootObject.GetComponent<Animator>();
+                var debugAnchor = anim != null && anim.isHuman && anim.GetBoneTransform(HumanBodyBones.Hips) != null
+                    ? anim.GetBoneTransform(HumanBodyBones.Hips) : root;
                 var collider = new BodyFitSolver.Collider();
                 foreach (var b in bodies)
                 {
@@ -198,7 +202,7 @@ namespace Hinata.BodyFit.Editor
                 if (verbose && collider.Skipped > 0)
                     log.AppendLine($"  体側: 潰れた/裏返った三角形 {collider.Skipped} 枚を判定から除外");
                 collider.Build(cellSize);
-                BodyFitDebug.RecordBody(root, collider);
+                BodyFitDebug.RecordBody(debugAnchor, collider);
                 Lap("体の判定");
 
                 // 4. 衣装の粒子を作る
@@ -269,7 +273,7 @@ namespace Hinata.BodyFit.Editor
                 {
                     var src = smr.sharedMesh;
                     var deltas = BodyFitSolver.ToDeltas(target, out var stats);
-                    BodyFitDebug.Record(root, smr.name, target);
+                    BodyFitDebug.Record(debugAnchor, smr.name, target);
                     if (deltas == null)
                     {
                         log.AppendLine($"  {smr.name}: 補正なし");

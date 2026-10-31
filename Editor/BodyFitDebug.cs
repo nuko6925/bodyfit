@@ -26,6 +26,8 @@ namespace Hinata.BodyFit.Editor
         static readonly List<Entry> _entries = new List<Entry>();
 
         internal static Transform Root;
+        // 記録の基準 (アバターの Hips)。Body Fit の後で別のツールが Armature を動かしても表示が付いていくようにする
+        static Transform _anchor;
         internal static bool Visible = true;
         internal static bool ShowSmoothOnly;
         internal static bool ThroughMesh = true;
@@ -44,6 +46,7 @@ namespace Hinata.BodyFit.Editor
             _entries.Clear();
             _bodySegs = null;
             Root = null;
+            _anchor = null;
             Filter = 0;
             _capturing = true;
         }
@@ -51,7 +54,7 @@ namespace Hinata.BodyFit.Editor
         internal static void EndCapture(Transform root)
         {
             _capturing = false;
-            Root = root;
+            Root = root != null && _anchor != null ? _anchor : root;
             SceneView.RepaintAll();
         }
 
@@ -65,6 +68,13 @@ namespace Hinata.BodyFit.Editor
         }
 
         internal static void Record(Transform avatarRoot, string name, BodyFitSolver.Target t)
+        {
+            if (!_capturing) return;
+            _anchor = avatarRoot;
+            RecordCore(avatarRoot, name, t);
+        }
+
+        static void RecordCore(Transform avatarRoot, string name, BodyFitSolver.Target t)
         {
             if (!_capturing) return;
 
@@ -92,6 +102,7 @@ namespace Hinata.BodyFit.Editor
         internal static void RecordBody(Transform avatarRoot, BodyFitSolver.Collider collider)
         {
             if (!_capturing) return;
+            _anchor = avatarRoot;
             var pos = collider.Positions;
             var tri = collider.Triangles;
             var seen = new HashSet<long>(FastHash.I);
