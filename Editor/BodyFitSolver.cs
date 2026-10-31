@@ -256,6 +256,7 @@ namespace Hinata.BodyFit.Editor
             readonly List<bool> _triBust = new List<bool>();   // 胸の三角形か
             float _bustMinY = float.MaxValue, _bustMaxY = float.MinValue;
             internal bool HasBust => _bustMinY <= _bustMaxY;
+            internal int BustTriangles { get; private set; }
             internal float BustMinY => _bustMinY;
             internal float BustMaxY => _bustMaxY;
 
@@ -292,6 +293,7 @@ namespace Hinata.BodyFit.Editor
                     _triLimb.Add(limb != null ? limb[t[i]] : Limb.Any);
                     bool b = bust != null && (bust[t[i]] || bust[t[i + 1]] || bust[t[i + 2]]);
                     _triBust.Add(b);
+                    if (b) BustTriangles++;
                     if (b)
                         for (int k = 0; k < 3; k++)
                         {

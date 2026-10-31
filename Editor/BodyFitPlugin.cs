@@ -192,8 +192,10 @@ namespace Hinata.BodyFit.Editor
                     }
                     // 胸の先などの細かい凹凸を、布が張ったようにならしてから判定に使う (服に体の細部が浮き出ない)
                     if (f.bodySmoothing > 0f) BodyFitSolver.Envelope(bp, f.bodySmoothing);
+                    var bustV = BustVertices(b, bustBones, out string bustDiag);
+                    if (f.fitBust && bustBones.Count > 0 && verbose) log.AppendLine($"  胸の余り: {b.name} {bustDiag}");
                     collider.Add(bp, BodyFitSolver.Pose(b, b.sharedMesh, applyBlendShapes: false), ign,
-                                 Limb.OfVertices(b, b.sharedMesh, limbRoots), BustVertices(b, bustBones));
+                                 Limb.OfVertices(b, b.sharedMesh, limbRoots), bustV);
                     if (verbose)
                         log.AppendLine($"  体 {b.name}: スキニング差 (手計算 vs Unity) 最大 {bp.BakeDeviation * 1000f:F1} mm" +
                                        (bp.Baked ? "" : "  ※BakeMesh 失敗、手計算を使用"));
@@ -268,6 +270,7 @@ namespace Hinata.BodyFit.Editor
                     if (islands > 0) log.AppendLine($"  小パーツ {islands} 個を周囲の面に追従");
                     if (f.fitBust)
                         log.AppendLine(bustBones.Count == 0 ? "  胸の余り: 胸のボーンが見つからないためスキップ"
+                                       : collider.BustTriangles == 0 ? "  胸の余り: 体に胸の面がないためスキップ"
                                                             : $"  胸の余り: 胸ボーン {bustBones.Count} 本 / {r.BustPulled} 頂点を衣装のゆとりまで引き寄せ" +
                                                               (r.BustLog != null && r.BustLog.Count > 0 ? "\n    " + string.Join("\n    ", r.BustLog) : ""));
                     log.AppendLine($"  ソルバー: 粒子 {r.Particles} / 衝突候補 {r.Candidates} / レイヤー結合 {r.LayerPairs} / 体→衣装の拘束 {r.Bindings} / {r.Milliseconds} ms");
@@ -683,8 +686,9 @@ namespace Hinata.BodyFit.Editor
             return set;
         }
 
-        static bool[] BustVertices(SkinnedMeshRenderer smr, HashSet<Transform> bustBones)
+        static bool[] BustVertices(SkinnedMeshRenderer smr, HashSet<Transform> bustBones, out string diag)
         {
+            diag = "";
             if (bustBones.Count == 0) return null;
             var mesh = smr.sharedMesh;
             var bones = smr.bones;
@@ -697,7 +701,12 @@ namespace Hinata.BodyFit.Editor
                 for (var c = bones[i]; c != null && c != smr.transform; c = c.parent)
                     if (bustBones.Contains(c)) { isBust[i] = true; any = true; break; }
             }
-            if (!any) return null;
+            if (!any)
+            {
+                diag = "体のボーンに胸ボーンが含まれていない (" +
+                       string.Join(", ", bones.Where(x => x != null && x.name.ToLowerInvariant().Contains("breast")).Select(x => x.name + "←" + (x.parent != null ? x.parent.name : "")).Take(6)) + ")";
+                return null;
+            }
             var bpv = mesh.GetBonesPerVertex();
             var weights = mesh.GetAllBoneWeights();
             var res = new bool[mesh.vertexCount];
@@ -713,6 +722,7 @@ namespace Hinata.BodyFit.Editor
                 }
                 res[v] = sum >= 0.3f;
             }
+            diag = $"胸の頂点 {res.Count(x => x)} / 胸ボーン: {string.Join(", ", bustBones.Select(x => x.name).Take(6))}";
             return res;
         }
 
