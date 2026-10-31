@@ -365,8 +365,10 @@ namespace Hinata.BodyFit.Editor
         }
 
         /// <summary>
-        /// 胴体 (Spine / Chest / UpperChest) に付く衣装の頂点を、上下・前後に 5mm 刻みで動かしてみて、
-        /// 体へのめり込みの合計が一番小さくなる移動量を返す。改善が小さければ 0。
+        /// 上半身 (胴・腕) に付く衣装の頂点を上下・前後に動かしてみて、
+        ///   体へのめり込み + もともと体に触れていた所 (肩の上など) の浮き
+        /// が一番小さくなる移動量を返す。服は肩に乗っているので、めり込みを減らすためだけに浮かせすぎない。
+        /// 改善が小さければ 0。
         /// </summary>
         static Vector3 FindUpperShift(Transform avatarRoot, IList<SkinnedMeshRenderer> bodies,
                                       List<(Vector3 world, Transform bone, int mesh)> clothVerts,
@@ -376,32 +378,44 @@ namespace Hinata.BodyFit.Editor
             var samples = new List<Vector3>();
             foreach (var (world, bone, _) in clothVerts)
                 if (map.TryGetValue(bone, out var bd) &&
-                    (bd.Id == HumanBodyBones.Spine || bd.Id == HumanBodyBones.Chest || bd.Id == HumanBodyBones.UpperChest))
+                    (bd.Id == HumanBodyBones.Spine || bd.Id == HumanBodyBones.Chest || bd.Id == HumanBodyBones.UpperChest ||
+                     bd.Id == HumanBodyBones.LeftUpperArm || bd.Id == HumanBodyBones.RightUpperArm))
                     samples.Add(world);
             if (samples.Count < 50) return Vector3.zero;
-            int stride = Mathf.Max(1, samples.Count / 1500);
+            int stride = Mathf.Max(1, samples.Count / 800);
             var pts = new List<Vector3>();
             for (int i = 0; i < samples.Count; i += stride) pts.Add(samples[i]);
 
             var col = new BodyFitSolver.Collider();
             foreach (var b in bodies)
                 col.Add(BodyFitSolver.Pose(b, b.sharedMesh), BodyFitSolver.Pose(b, b.sharedMesh, applyBlendShapes: false));
-            col.Build(0.01f);
+            col.Build(0.02f);
 
             var up = avatarRoot.up;
             var fwd = Vector3.ProjectOnPlane(opt.Forward.sqrMagnitude > 0.5f ? opt.Forward : avatarRoot.forward, up).normalized;
             float ease = Mathf.Max(opt.Ease, 0.001f);
+            const float R = 0.05f;
+
+            float Signed(Vector3 p)
+            {
+                if (!col.Closest(p, R, out var q, out var n, out _, out var why)) return R;
+                if (why == BodyFitSolver.InsideReason.Boundary) return (p - q).magnitude;
+                return Vector3.Dot(p - q, n);
+            }
+
+            // もともと体に触れている点 (めり込んではいない): 動かして浮いたら減点する
+            var s0 = new float[pts.Count];
+            System.Threading.Tasks.Parallel.For(0, pts.Count, i => s0[i] = Signed(pts[i]));
 
             float Cost(Vector3 g)
             {
                 var sum = new double[pts.Count];
                 System.Threading.Tasks.Parallel.For(0, pts.Count, i =>
                 {
-                    var p = pts[i] + g;
-                    if (!col.Closest(p, 0.08f, out var q, out var n, out _, out var why)) return;
-                    if (why == BodyFitSolver.InsideReason.Boundary) return;
-                    float s = Vector3.Dot(p - q, n);
-                    if (s < ease) sum[i] = ease - s;
+                    float s = Signed(pts[i] + g);
+                    double c = s < ease ? ease - s : 0.0;
+                    if (s0[i] >= 0f && s0[i] < ease + 0.008f && s > s0[i]) c += 0.5 * (s - s0[i]);
+                    sum[i] = c;
                 });
                 return (float)sum.Sum();
             }
@@ -409,18 +423,25 @@ namespace Hinata.BodyFit.Editor
             float c0 = Cost(Vector3.zero);
             if (c0 <= 1e-4f) return Vector3.zero;
             float best = c0; Vector3 bestG = Vector3.zero;
-            for (int iu = -2; iu <= 6; iu++)
-            for (int jf = -2; jf <= 6; jf++)
+            void Try(Vector3 g)
             {
-                if (iu == 0 && jf == 0) continue;
-                var g = up * (iu * 0.005f) + fwd * (jf * 0.005f);
+                if (g == bestG) return;
                 float c = Cost(g);
                 // ほぼ同じなら動かす量が小さいほうを選ぶ
                 if (c < best * 0.97f || (c <= best * 1.03f && g.sqrMagnitude < bestG.sqrMagnitude)) { best = c; bestG = g; }
             }
+            // 10mm 刻みで大まかに → 最良の周りを 5mm 刻みで
+            for (int iu = -1; iu <= 3; iu++)
+            for (int jf = -1; jf <= 3; jf++)
+                Try(up * (iu * 0.01f) + fwd * (jf * 0.01f));
+            var center = bestG;
+            for (int iu = -1; iu <= 1; iu++)
+            for (int jf = -1; jf <= 1; jf++)
+                Try(center + up * (iu * 0.005f) + fwd * (jf * 0.005f));
+
             if (best > c0 * 0.8f) bestG = Vector3.zero; // 2 割以上減らないなら動かさない
             log = $"    上半身の位置合わせ: 上へ {Vector3.Dot(bestG, up) * 1000f:0.0}mm / 前へ {Vector3.Dot(bestG, fwd) * 1000f:0.0}mm" +
-                  $"  (めり込みの合計 {c0 * 1000f:0} → {(bestG == Vector3.zero ? c0 : best) * 1000f:0} mm, {pts.Count} 点)";
+                  $"  (評価 {c0 * 1000f:0} → {(bestG == Vector3.zero ? c0 : best) * 1000f:0}, {pts.Count} 点)";
             return bestG;
         }
 
@@ -797,10 +818,9 @@ namespace Hinata.BodyFit.Editor
         static float TorsoFactor(List<float> ratios, List<float> bodyRadii, Options opt, out float f)
         {
             float grow = Factor(ratios, bodyRadii, opt, 0.5f, out float f50);
-            float shrink = Factor(ratios, bodyRadii, opt, 0.25f, out float f25);
             f = f50;
             if (f50 < 1f && grow > 1f) return grow;     // 半分以上が体より内側
-            if (f25 > 1f && shrink < 1f) { f = f25; return shrink; } // 一番きつい所でもゆるい
+            // 胴体は縮めない (ゆったりしたデザインを細くしない。余りは胸の余りの処理などに任せる)
             return 1f;
         }
 
