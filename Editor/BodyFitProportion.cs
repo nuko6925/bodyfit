@@ -365,10 +365,9 @@ namespace Hinata.BodyFit.Editor
         }
 
         /// <summary>
-        /// 上半身 (胴・腕) に付く衣装の頂点を上下・前後に動かしてみて、
-        ///   体へのめり込み + もともと体に触れていた所 (肩の上など) の浮き
-        /// が一番小さくなる移動量を返す。服は肩に乗っているので、めり込みを減らすためだけに浮かせすぎない。
-        /// 改善が小さければ 0。
+        /// 胴体 (Spine / Chest / UpperChest) に付く衣装の頂点を上下に動かしてみて、
+        ///   体へのめり込み + 肩の上 (体の面が上を向いている所) でもともと触れていた生地の浮き
+        /// が一番小さくなる移動量を返す (服は肩に乗っているので、浮かせすぎない)。改善が 1 割未満なら 0。
         /// </summary>
         static Vector3 FindUpperShift(Transform avatarRoot, IList<SkinnedMeshRenderer> bodies,
                                       List<(Vector3 world, Transform bone, int mesh)> clothVerts,
@@ -378,11 +377,10 @@ namespace Hinata.BodyFit.Editor
             var samples = new List<Vector3>();
             foreach (var (world, bone, _) in clothVerts)
                 if (map.TryGetValue(bone, out var bd) &&
-                    (bd.Id == HumanBodyBones.Spine || bd.Id == HumanBodyBones.Chest || bd.Id == HumanBodyBones.UpperChest ||
-                     bd.Id == HumanBodyBones.LeftUpperArm || bd.Id == HumanBodyBones.RightUpperArm))
+                    (bd.Id == HumanBodyBones.Spine || bd.Id == HumanBodyBones.Chest || bd.Id == HumanBodyBones.UpperChest))
                     samples.Add(world);
             if (samples.Count < 50) return Vector3.zero;
-            int stride = Mathf.Max(1, samples.Count / 800);
+            int stride = Mathf.Max(1, samples.Count / 1000);
             var pts = new List<Vector3>();
             for (int i = 0; i < samples.Count; i += stride) pts.Add(samples[i]);
 
@@ -392,57 +390,54 @@ namespace Hinata.BodyFit.Editor
             col.Build(0.02f);
 
             var up = avatarRoot.up;
-            var fwd = Vector3.ProjectOnPlane(opt.Forward.sqrMagnitude > 0.5f ? opt.Forward : avatarRoot.forward, up).normalized;
             float ease = Mathf.Max(opt.Ease, 0.001f);
             const float R = 0.05f;
 
-            float Signed(Vector3 p)
+            bool Query(Vector3 p, out float s, out Vector3 n)
             {
-                if (!col.Closest(p, R, out var q, out var n, out _, out var why)) return R;
-                if (why == BodyFitSolver.InsideReason.Boundary) return (p - q).magnitude;
-                return Vector3.Dot(p - q, n);
+                s = R; n = Vector3.zero;
+                if (!col.Closest(p, R, out var q, out n, out _, out var why)) return false;
+                s = why == BodyFitSolver.InsideReason.Boundary ? (p - q).magnitude : Vector3.Dot(p - q, n);
+                return true;
             }
 
-            // もともと体に触れている点 (めり込んではいない): 動かして浮いたら減点する
+            // 肩の上で体に触れている点 (体の面が上向き・めり込んではいない)
             var s0 = new float[pts.Count];
-            System.Threading.Tasks.Parallel.For(0, pts.Count, i => s0[i] = Signed(pts[i]));
-
-            float Cost(Vector3 g)
+            var onTop = new bool[pts.Count];
+            System.Threading.Tasks.Parallel.For(0, pts.Count, i =>
             {
-                var sum = new double[pts.Count];
+                if (!Query(pts[i], out s0[i], out var n)) return;
+                onTop[i] = Vector3.Dot(n, up) > 0.6f && s0[i] >= 0f && s0[i] < ease + 0.01f;
+            });
+
+            (float pen, float lift) Cost(Vector3 g)
+            {
+                var pen = new double[pts.Count];
+                var lift = new double[pts.Count];
                 System.Threading.Tasks.Parallel.For(0, pts.Count, i =>
                 {
-                    float s = Signed(pts[i] + g);
-                    double c = s < ease ? ease - s : 0.0;
-                    if (s0[i] >= 0f && s0[i] < ease + 0.008f && s > s0[i]) c += 0.5 * (s - s0[i]);
-                    sum[i] = c;
+                    Query(pts[i] + g, out float s, out _);
+                    if (s < ease) pen[i] = ease - s;
+                    if (onTop[i] && s > s0[i]) lift[i] = s - s0[i];
                 });
-                return (float)sum.Sum();
+                return ((float)pen.Sum(), (float)lift.Sum());
             }
 
-            float c0 = Cost(Vector3.zero);
-            if (c0 <= 1e-4f) return Vector3.zero;
-            float best = c0; Vector3 bestG = Vector3.zero;
-            void Try(Vector3 g)
+            var table = new List<string>();
+            float c0 = 0f, best = float.MaxValue; int bestK = 0;
+            for (int k = -2; k <= 6; k++)
             {
-                if (g == bestG) return;
-                float c = Cost(g);
+                var (pen, lift) = Cost(up * (k * 0.005f));
+                float c = pen + lift;
+                if (k == 0) c0 = c;
+                table.Add($"{k * 5:+0;-0;0}mm: {pen * 1000f:0}+{lift * 1000f:0}");
                 // ほぼ同じなら動かす量が小さいほうを選ぶ
-                if (c < best * 0.97f || (c <= best * 1.03f && g.sqrMagnitude < bestG.sqrMagnitude)) { best = c; bestG = g; }
+                if (c < best * 0.97f || (c <= best * 1.03f && Mathf.Abs(k) < Mathf.Abs(bestK))) { best = c; bestK = k; }
             }
-            // 10mm 刻みで大まかに → 最良の周りを 5mm 刻みで
-            for (int iu = -1; iu <= 3; iu++)
-            for (int jf = -1; jf <= 3; jf++)
-                Try(up * (iu * 0.01f) + fwd * (jf * 0.01f));
-            var center = bestG;
-            for (int iu = -1; iu <= 1; iu++)
-            for (int jf = -1; jf <= 1; jf++)
-                Try(center + up * (iu * 0.005f) + fwd * (jf * 0.005f));
-
-            if (best > c0 * 0.8f) bestG = Vector3.zero; // 2 割以上減らないなら動かさない
-            log = $"    上半身の位置合わせ: 上へ {Vector3.Dot(bestG, up) * 1000f:0.0}mm / 前へ {Vector3.Dot(bestG, fwd) * 1000f:0.0}mm" +
-                  $"  (評価 {c0 * 1000f:0} → {(bestG == Vector3.zero ? c0 : best) * 1000f:0}, {pts.Count} 点)";
-            return bestG;
+            if (c0 <= 1e-4f || best > c0 * 0.9f) bestK = 0;
+            var g0 = up * (bestK * 0.005f);
+            log = $"    上半身の位置合わせ: 上へ {bestK * 5}mm  (めり込み+肩の浮き: {string.Join(" / ", table)}; {pts.Count} 点, 肩の上 {onTop.Count(x => x)} 点)";
+            return g0;
         }
 
         static Transform MakeProxy(Transform t, Vector3? centroid, Dictionary<Transform, BoneData> map, Dictionary<Transform, Vector3> snap,
