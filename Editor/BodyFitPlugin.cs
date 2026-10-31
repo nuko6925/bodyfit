@@ -452,6 +452,13 @@ namespace Hinata.BodyFit.Editor
                     if (t != null) dirParents.Add(t);
                 }
             var renamed = new List<string>();
+            var legs = new HashSet<Transform>();
+            if (animator != null && animator.isHuman)
+                foreach (var hb in new[] { HumanBodyBones.LeftUpperLeg, HumanBodyBones.RightUpperLeg })
+                {
+                    var t = animator.GetBoneTransform(hb);
+                    if (t != null) legs.Add(t);
+                }
 
             var mergers = fitter.GetComponentsInChildren<nadena.dev.modular_avatar.core.ModularAvatarMergeArmature>(true);
             if (mergers.Length == 0)
@@ -492,6 +499,11 @@ namespace Hinata.BodyFit.Editor
                 }
 
                 int Depth(Transform t) { int d = 0; for (var c = t; c != null; c = c.parent) d++; return d; }
+                bool IsLeg(Transform t)
+                {
+                    for (var c = t; c != null; c = c.parent) if (legs.Contains(c)) return true;
+                    return false;
+                }
                 // 指 (手・足の下) は、位置に加えて骨の向きも合わせる。
                 // 位置だけだと、指の付け根の骨に付いたメッシュ (手袋の指の筒) が元の向きのまま残り、アバターの指と交差する
                 bool UnderHandOrFoot(Transform t)
@@ -524,7 +536,9 @@ namespace Hinata.BodyFit.Editor
 
                     // ボーン自体のスケール (BSA の Upper_leg 0.8 等) も揃える。
                     // MA は位置しか合わせないので、アバター側だけ縮めると、衣装 (特に統合で付け替えられる靴などの子) が元の大きさのまま残る
-                    if (fitter.copyBodyShape && (baseBone.localScale - mergeBone.localScale).sqrMagnitude > 1e-8f)
+                    // 脚 (UpperLeg から下) のスケールは常に写す: 子の足・靴の大きさと、すね↔足の長さがこれに依存するため
+                    // (写さないと靴のすね側とつま先側で長さが合わず裂ける)。胴などは Copy Body Shape のときだけ
+                    if ((fitter.copyBodyShape || IsLeg(baseBone)) && (baseBone.localScale - mergeBone.localScale).sqrMagnitude > 1e-8f)
                     {
                         if (scaled.Count < 8) scaled.Add($"{mergeBone.name} x{baseBone.localScale.x:0.###}");
                         mergeBone.localScale = baseBone.localScale;

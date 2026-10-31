@@ -70,7 +70,8 @@ namespace Hinata.BodyFit
 
         [Tooltip("アバター側の体型改変 (ボーンのスケールと MA Scale Adjuster) を衣装にも写す。" +
                  "衣装がもともとその素体に合っている (対応衣装) 場合に使う。" +
-                 "非対応衣装では長さは関節の位置合わせ、太さは体型合わせで合わせるので、写すと二重に掛かる")]
+                 "非対応衣装では長さは関節の位置合わせ、太さは体型合わせで合わせるので、写すと二重に掛かる。" +
+                 "脚 (太もも以下) のスケールは靴の大きさに関わるので、オフでも写す")]
         [UnityEngine.Serialization.FormerlySerializedAs("copyScaleAdjusters")]
         public bool copyBodyShape = false;
 
