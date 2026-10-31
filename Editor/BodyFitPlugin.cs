@@ -178,6 +178,10 @@ namespace Hinata.BodyFit.Editor
                 var debugAnchor = anim != null && anim.isHuman && anim.GetBoneTransform(HumanBodyBones.Hips) != null
                     ? anim.GetBoneTransform(HumanBodyBones.Hips) : root;
                 var collider = new BodyFitSolver.Collider();
+                // drape を指定したメッシュ用: くぼみ (胸の上下・谷間など) を埋めて、布が張った形にした体
+                float maxDrape = 0f;
+                foreach (var o in job.Overrides.Values) if (!o.skip) maxDrape = Mathf.Max(maxDrape, o.drape);
+                var drapeCollider = maxDrape > 0f ? new BodyFitSolver.Collider() : null;
                 foreach (var b in bodies)
                 {
                     var bp = BodyFitSolver.Pose(b, b.sharedMesh);
@@ -195,8 +199,15 @@ namespace Hinata.BodyFit.Editor
                     if (f.bodySmoothing > 0f) BodyFitSolver.Envelope(bp, f.bodySmoothing);
                     var bustV = BustVertices(b, bustBones, out string bustDiag);
                     if (f.fitBust && bustBones.Count > 0 && verbose) log.AppendLine($"  胸の余り: {b.name} {bustDiag}");
-                    collider.Add(bp, BodyFitSolver.Pose(b, b.sharedMesh, applyBlendShapes: false), ign,
-                                 Limb.OfVertices(b, b.sharedMesh, limbRoots), bustV);
+                    var restPose = BodyFitSolver.Pose(b, b.sharedMesh, applyBlendShapes: false);
+                    var limbV = Limb.OfVertices(b, b.sharedMesh, limbRoots);
+                    collider.Add(bp, restPose, ign, limbV, bustV);
+                    if (drapeCollider != null)
+                    {
+                        var dp = new BodyFitSolver.Posed { World = (Vector3[])bp.World.Clone(), Skin = bp.Skin, Triangles = bp.Triangles };
+                        BodyFitSolver.Envelope(dp, maxDrape, 1f);
+                        drapeCollider.Add(dp, restPose, ign, limbV, bustV);
+                    }
                     if (verbose)
                         log.AppendLine($"  体 {b.name}: スキニング差 (手計算 vs Unity) 最大 {bp.BakeDeviation * 1000f:F1} mm" +
                                        (bp.Baked ? "" : "  ※BakeMesh 失敗、手計算を使用"));
@@ -224,7 +235,7 @@ namespace Hinata.BodyFit.Editor
                     job.Overrides.TryGetValue(smr, out var ov);
                     var settings = ov == null
                         ? new BodyFitSolver.Settings { Margin = f.margin, MaxDistance = f.maxDistance, ReverseDepth = f.reverseDepth }
-                        : new BodyFitSolver.Settings { Margin = ov.margin, MaxDistance = ov.maxDistance, ReverseDepth = ov.reverseDepth, Layer = ov.layer, Tight = ov.tight, Falloff = ov.falloff };
+                        : new BodyFitSolver.Settings { Margin = ov.margin, MaxDistance = ov.maxDistance, ReverseDepth = ov.reverseDepth, Layer = ov.layer, Tight = ov.tight, Falloff = ov.falloff, Drape = ov.drape };
                     if (verbose && posed.BakeDeviation > 0.001f)
                         log.AppendLine($"  {smr.name}: スキニング差 最大 {posed.BakeDeviation * 1000f:F1} mm");
 
@@ -263,7 +274,7 @@ namespace Hinata.BodyFit.Editor
                         LayerDistance = f.layerFollowDistance,
                         FitBust = f.fitBust,
                         KeepHiddenLayers = f.keepHiddenLayers,
-                    }, passive);
+                    }, passive, drapeCollider);
                 Lap("ソルバー");
                 int islands = BodyFitSolver.FollowIslands(prepared.Select(p => p.t).ToList(), f.islandMaxSize, 0.03f);
                 Lap("小パーツ");

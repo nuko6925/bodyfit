@@ -85,6 +85,7 @@ namespace Hinata.BodyFit.Editor
             public int Layer;
             public bool Tight;           // 体に密着させる (浮いている部分も引き寄せる)
             public float Falloff;        // 押し出しをなじませる範囲 (m)。0 なら全体の設定
+            public float Drape;          // > 0: くぼみを埋めた体 (布が張った形) で判定する
         }
 
         internal struct Stats
@@ -895,7 +896,7 @@ namespace Hinata.BodyFit.Editor
         /// 凹んだ所 (谷間・へそ・突起の根元) が埋まり、小さな突起は裾の広いなだらかな山になる。突起そのものは削らない。
         /// </summary>
         /// <param name="radius">ならす範囲 (m)。おおよそこの距離まで突起の裾が広がる</param>
-        internal static void Envelope(Posed p, float radius)
+        internal static void Envelope(Posed p, float radius, float maxLiftRatio = 0.2f)
         {
             var w = p.World;
             var weld = Weld(w, out int gc);
@@ -923,7 +924,7 @@ namespace Hinata.BodyFit.Editor
             int iters = Mathf.Clamp(Mathf.RoundToInt(k * k), 1, 400);
 
             // 持ち上げる量の上限。小さな突起の根元は埋めるが、谷間のような大きなくぼみは埋めすぎない
-            float maxLift = radius * 0.2f;
+            float maxLift = radius * maxLiftRatio;
             var cur = (Vector3[])pos.Clone();
             var next = new Vector3[gc];
             for (int it = 0; it < iters; it++)

@@ -36,7 +36,8 @@ namespace Hinata.BodyFit.Editor
 
         /// <param name="passive">補正しないが「外側を覆う面」として扱う衣装 (個別設定でスキップしたメッシュ)</param>
         internal static Result Solve(IList<BodyFitSolver.Target> targets, IList<BodyFitSolver.Settings> settings,
-                                     BodyFitSolver.Collider body, Params prm, IList<BodyFitSolver.Posed> passive = null)
+                                     BodyFitSolver.Collider body, Params prm, IList<BodyFitSolver.Posed> passive = null,
+                                     BodyFitSolver.Collider drapeBody = null)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var res = new Result();
@@ -62,6 +63,7 @@ namespace Hinata.BodyFit.Editor
             var axis = new Vector3[n];     // 面の向き (表裏は区別しない軸)
             var radial = new Vector3[n];   // ボーンの軸から外向き (深い貫通の脱出方向)
             var tight = new bool[n];       // 体に密着させる
+            var useDrape = new bool[n];    // くぼみを埋めた体で判定する (ゆったりした服)
             var limb = new byte[n];        // 部位 (密着の引き寄せ先を同じ部位に限る)
 
             var allTris = new List<int>();
@@ -91,6 +93,7 @@ namespace Hinata.BodyFit.Editor
                     reach[p] = s.ReverseDepth;
                     layer[p] = s.Layer;
                     tight[p] = s.Tight;
+                    useDrape[p] = drapeBody != null && s.Drape > 0f;
                     limb[p] = t.GLimb != null ? t.GLimb[g] : Limb.Any;
                     gamma[p] = gm;
                     owner[p] = ti;
@@ -127,6 +130,8 @@ namespace Hinata.BodyFit.Editor
 
             // 体は細かいグリッドで引き直す (反復中の近傍探索を速くする)
             body.Build(0.01f);
+            drapeBody?.Build(0.01f);
+            BodyFitSolver.Collider Col(int p) => useDrape[p] ? drapeBody : body;
 
             // ---------------------------------------------------------------
             // 衝突候補: 初期位置で体から maxDistance 以内の粒子
@@ -142,7 +147,7 @@ namespace Hinata.BodyFit.Editor
                 Parallel.For(0, n, p =>
                 {
                     if (pinned[p]) return;
-                    if (body.Closest(x0[p], maxDist[p], out var q, out var nn, out _, out var why0))
+                    if (Col(p).Closest(x0[p], maxDist[p], out var q, out var nn, out _, out var why0))
                     {
                         isCand[p] = true;
                         lastDist[p] = (x0[p] - q).magnitude;
@@ -508,7 +513,7 @@ namespace Hinata.BodyFit.Editor
 
                     float r = Mathf.Clamp(lastDist[p] + moved + 0.005f, 0.01f, maxDist[p]);
                     qpos[p] = x[p];
-                    if (!body.Closest(x[p], r, out var q, out var nn, out _, out var why))
+                    if (!Col(p).Closest(x[p], r, out var q, out var nn, out _, out var why))
                     {
                         lastDist[p] = r;
                         lastSigned[p] = r;
@@ -532,7 +537,7 @@ namespace Hinata.BodyFit.Editor
                     bool done = false;
                     // 深く埋まっている: 最近傍点は反対側の面のことがあるので、ボーンの軸から外向きに抜ける
                     if (signed < -0.005f && radial[p].sqrMagnitude > 0.5f &&
-                        body.Raycast(x[p], radial[p], maxDist[p], out float dex, out bool exitR) && exitR)
+                        Col(p).Raycast(x[p], radial[p], maxDist[p], out float dex, out bool exitR) && exitR)
                     {
                         x[p] += radial[p] * (dex + tgt);
                         signed = tgt;
