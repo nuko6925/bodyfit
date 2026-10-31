@@ -142,11 +142,11 @@ namespace Hinata.BodyFit.Editor
                 Parallel.For(0, n, p =>
                 {
                     if (pinned[p]) return;
-                    if (body.Closest(x0[p], maxDist[p], out var q, out var nn, out _, out _))
+                    if (body.Closest(x0[p], maxDist[p], out var q, out var nn, out _, out var why0))
                     {
                         isCand[p] = true;
                         lastDist[p] = (x0[p] - q).magnitude;
-                        lastSigned[p] = Vector3.Dot(x0[p] - q, nn);
+                        lastSigned[p] = why0 == BodyFitSolver.InsideReason.Boundary ? lastDist[p] : Vector3.Dot(x0[p] - q, nn);
                         qpos[p] = x0[p];
                         bodyOff[p] = x0[p] - q;
                     }
@@ -508,7 +508,7 @@ namespace Hinata.BodyFit.Editor
 
                     float r = Mathf.Clamp(lastDist[p] + moved + 0.005f, 0.01f, maxDist[p]);
                     qpos[p] = x[p];
-                    if (!body.Closest(x[p], r, out var q, out var nn, out _, out _))
+                    if (!body.Closest(x[p], r, out var q, out var nn, out _, out var why))
                     {
                         lastDist[p] = r;
                         lastSigned[p] = r;
@@ -517,6 +517,8 @@ namespace Hinata.BodyFit.Editor
                     }
                     lastDist[p] = (x[p] - q).magnitude;
                     float signed = Vector3.Dot(x[p] - q, nn);
+                    // 最寄りが体の穴の縁 (首の切れ目など): 内外が決まらないので外側として扱う
+                    if (why == BodyFitSolver.InsideReason.Boundary) signed = lastDist[p];
                     bool hit = signed < tgt;
 
                     // 外側の層 (表地) が体の外にあるなら、この内側の層 (裏地・襟の内側など) はめり込んでいても見えない。

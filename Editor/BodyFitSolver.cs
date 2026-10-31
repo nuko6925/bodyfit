@@ -246,7 +246,7 @@ namespace Hinata.BodyFit.Editor
         //  体(コライダー)側: 三角形 + 溶接済み頂点法線 + 空間グリッド
         // ===================================================================
 
-        internal enum InsideReason { None, Pseudo, Aligned }
+        internal enum InsideReason { None, Pseudo, Aligned, Boundary }
 
         internal sealed class Collider
         {
@@ -405,6 +405,7 @@ namespace Hinata.BodyFit.Editor
                 _gSmooth = new Vector3[gc];
                 _gPseudo = new Vector3[gc];
                 _edge = new Dictionary<long, Vector3>(FastHash.I);
+                _edgeN = new Dictionary<long, int>(FastHash.I);
 
                 for (int ti = 0; ti < tc; ti++)
                 {
@@ -431,6 +432,15 @@ namespace Hinata.BodyFit.Editor
                 {
                     _gSmooth[g] = _gSmooth[g].normalized;
                     _gPseudo[g] = _gPseudo[g].normalized;
+                }
+
+                // 穴の縁 (面が片側にしかない辺と、その両端の頂点): 首の切れ目、判定から外した靴の中の足の境目など
+                _gBoundary = new bool[gc];
+                foreach (var kv in _edgeN)
+                {
+                    if (kv.Value != 1) continue;
+                    _gBoundary[(int)(kv.Key >> 32)] = true;
+                    _gBoundary[(int)(kv.Key & 0xffffffffL)] = true;
                 }
 
                 // 空間グリッド
@@ -460,7 +470,14 @@ namespace Hinata.BodyFit.Editor
                 long k = EdgeKey(a, b);
                 _edge.TryGetValue(k, out var v);
                 _edge[k] = v + fn;
+                _edgeN.TryGetValue(k, out int c);
+                _edgeN[k] = c + 1;
             }
+
+            Dictionary<long, int> _edgeN;  // 溶接辺ごとの面の数
+            bool[] _gBoundary;              // 穴の縁の頂点
+
+            bool BoundaryEdge(int a, int b) => _edgeN.TryGetValue(EdgeKey(a, b), out int c) && c == 1;
 
             static long EdgeKey(int a, int b) =>
                 a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
@@ -575,6 +592,13 @@ namespace Hinata.BodyFit.Editor
 
                 normal = (_gSmooth[g0] * bestBary.x + _gSmooth[g1] * bestBary.y + _gSmooth[g2] * bestBary.z).normalized;
                 if (normal.sqrMagnitude < 0.5f) normal = _fn[bestTri];
+
+                // 最近傍点が穴の縁 (首の切れ目など) にあるときは内外が決まらないので、内側とはみなさない。
+                // 縁の法線は片側の面だけから作られるため、襟のように縁を囲む衣装が「めり込んでいる」と誤判定される
+                bool onBoundary =
+                    (bestBary.x == 1f && _gBoundary[g0]) || (bestBary.y == 1f && _gBoundary[g1]) || (bestBary.z == 1f && _gBoundary[g2]) ||
+                    (bestBary.z == 0f && BoundaryEdge(g0, g1)) || (bestBary.y == 0f && BoundaryEdge(g0, g2)) || (bestBary.x == 0f && BoundaryEdge(g1, g2));
+                if (onBoundary) { reason = InsideReason.Boundary; return true; }
 
                 // 1. 擬似法線: 閉じたメッシュなら凹部でも正確だが、体メッシュの重なりや穴があると外れる
                 bool pseudoInside = Vector3.Dot(p - point, pseudo) < 0f;
