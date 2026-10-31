@@ -601,7 +601,7 @@ namespace Hinata.BodyFit.Editor
             if (nRot > 0) msg += $"\n  関節合わせ: 指など {nRot} ボーンの向きをアバターに合わせた";
             if (nHand > 0) msg += $"\n  関節合わせ: 手 {nHand} ボーンの大きさを骨の長さに合わせた" + (verbose ? $" ({string.Join(", ", handLog)})" : "");
             if (renamed.Count > 0)
-                msg += $"\n  関節合わせ: 名前の違う指などのボーン {renamed.Count} 本を方向で対応付け、アバターの名前に変更" +
+                msg += $"\n  関節合わせ: 名前の違うボーン {renamed.Count} 本をアバターの名前に変更 (MA が統合できるように)" +
                        (verbose ? $" ({string.Join(", ", renamed.Take(12))})" : "");
             return msg;
         }
@@ -633,6 +633,14 @@ namespace Hinata.BodyFit.Editor
                     if (suffix.Length > 0 && name.EndsWith(suffix)) name = name.Substring(0, name.Length - suffix.Length);
                     if (!baseChildren.TryGetValue(NormalizeBone(name), out var b)) { unmatched.Add(t); continue; }
                     used.Add(b);
+                    // 表記ゆれ (UpperLeg_L ↔ Upper_leg.L 等) で対応したボーンは、MA が統合できるよう名前をアバターに合わせる
+                    // (名前が違うと MA は別のボーンとして残し、プレイモードやアップロード後に衣装が体の動きに付いてこない)
+                    if (name != b.name)
+                    {
+                        var newName = prefix + b.name + suffix;
+                        renamed?.Add($"{t.name}→{newName}");
+                        t.name = newName;
+                    }
                     result.Add((b, t));
                     Scan(t, b, byDir);
                 }
