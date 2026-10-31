@@ -366,8 +366,8 @@ namespace Hinata.BodyFit.Editor
 
         /// <summary>
         /// 胴体 (Spine / Chest / UpperChest) に付く衣装の頂点を上下に動かしてみて、
-        ///   体へのめり込み + 肩の上 (体の面が上を向いている所) でもともと触れていた生地の浮き
-        /// が一番小さくなる移動量を返す (服は肩に乗っているので、浮かせすぎない)。改善が 1 割未満なら 0。
+        /// 体へのめり込みの合計を測る。0 から 5mm ずつ進め、次の 5mm でめり込みが最初の 1 割以上減るあいだだけ進む
+        /// (効きが鈍ったら止める。めり込みを減らすためだけに上限まで浮かせない)。2 割以上減らなければ 0。
         /// </summary>
         static Vector3 FindUpperShift(Transform avatarRoot, IList<SkinnedMeshRenderer> bodies,
                                       List<(Vector3 world, Transform bone, int mesh)> clothVerts,
@@ -423,20 +423,26 @@ namespace Hinata.BodyFit.Editor
                 return ((float)pen.Sum(), (float)lift.Sum());
             }
 
+            // めり込みが「次の 5mm で最初の 1 割以上減る」あいだだけ進む (効きが鈍ったら止める。上限まで動かさない)
+            var penAt = new Dictionary<int, float>();
             var table = new List<string>();
-            float c0 = 0f, best = float.MaxValue; int bestK = 0;
             for (int k = -2; k <= 6; k++)
             {
-                var (pen, lift) = Cost(up * (k * 0.005f));
-                float c = pen + lift;
-                if (k == 0) c0 = c;
-                table.Add($"{k * 5:+0;-0;0}mm: {pen * 1000f:0}+{lift * 1000f:0}");
-                // ほぼ同じなら動かす量が小さいほうを選ぶ
-                if (c < best * 0.97f || (c <= best * 1.03f && Mathf.Abs(k) < Mathf.Abs(bestK))) { best = c; bestK = k; }
+                penAt[k] = Cost(up * (k * 0.005f)).pen;
+                table.Add($"{k * 5:+0;-0;0}mm: {penAt[k] * 1000f:0}");
             }
-            if (c0 <= 1e-4f || best > c0 * 0.9f) bestK = 0;
+            float p0 = penAt[0];
+            int Walk(int dir)
+            {
+                int k = 0;
+                while (penAt.ContainsKey(k + dir) && penAt[k] - penAt[k + dir] >= p0 * 0.1f) k += dir;
+                return k;
+            }
+            int ku = Walk(1), kd = Walk(-1);
+            int bestK = penAt[ku] <= penAt[kd] ? ku : kd;
+            if (p0 <= 1e-4f || penAt[bestK] > p0 * 0.8f) bestK = 0; // 2 割以上減らないなら動かさない
             var g0 = up * (bestK * 0.005f);
-            log = $"    上半身の位置合わせ: 上へ {bestK * 5}mm  (めり込み+肩の浮き: {string.Join(" / ", table)}; {pts.Count} 点, 肩の上 {onTop.Count(x => x)} 点)";
+            log = $"    上半身の位置合わせ: 上へ {bestK * 5}mm  (めり込み: {string.Join(" / ", table)}; {pts.Count} 点)";
             return g0;
         }
 
