@@ -651,8 +651,21 @@ namespace Hinata.BodyFit.Editor
                 if (cw >= 0.7f) { rw.Add(ratio); bw.Add(bodyR[i, j]); }
             }
 
-            float su = Factor(ru, bu, opt, out float fu);
-            float sw = Factor(rw, bw, opt, out float fw);
+            // 胴体は胸の前だけが当たるなど断面が非対称なので、半分以上がきついときだけ太らせる (残りは押し出しに任せる)。
+            // 手足は 1/4 がきつければ全周を合わせる
+            float quant = limb ? 0.25f : 0.5f;
+            float su = Factor(ru, bu, opt, quant, out float fu);
+            float sw = Factor(rw, bw, opt, quant, out float fw);
+
+            // 中心ずらしは筒状にぴったりした衣装向け。ゆったりした袖などは元から中心が体とずれている (垂れている) ので、
+            // ゆったりしているほど弱める (手首で袖が折れたように持ち上がるのを防ぐ)
+            if (bd.Offset.sqrMagnitude > 0f)
+            {
+                float loose = Mathf.Max(fu, fw);
+                float wgt = Mathf.Clamp01((opt.LooseRatio - loose) / Mathf.Max(opt.LooseRatio - 1f, 1e-3f));
+                if (loose <= 1f) wgt = 1f;
+                bd.Offset *= wgt;
+            }
 
             bool footId = bd.Id == HumanBodyBones.LeftFoot || bd.Id == HumanBodyBones.RightFoot ||
                           bd.Id == HumanBodyBones.LeftToes || bd.Id == HumanBodyBones.RightToes;
@@ -687,14 +700,14 @@ namespace Hinata.BodyFit.Editor
             bd.Note = $"(衣装内径/体 = {fu:0.00} / {fw:0.00}{axial})";
         }
 
-        static float Factor(List<float> ratios, List<float> bodyRadii, Options opt, out float f)
+        static float Factor(List<float> ratios, List<float> bodyRadii, Options opt, float quantile, out float f)
         {
             f = 1f;
             if (ratios.Count < 3) return 1f;
             // 体の半分以上内側にある衣装 (靴の中敷き・膝当ての裏など) は外れ値として除く
             var sorted = ratios.Where(x => x >= 0.45f).OrderBy(x => x).ToList();
             if (sorted.Count < 3) return 1f;
-            f = sorted[Mathf.Clamp(Mathf.FloorToInt(sorted.Count * 0.25f), 0, sorted.Count - 1)];
+            f = sorted[Mathf.Clamp(Mathf.FloorToInt(sorted.Count * quantile), 0, sorted.Count - 1)];
             if (f <= 0f) return 1f;
             if (f >= opt.LooseRatio) return 1f; // 全周ゆったり → 元からのデザインとみなす
 

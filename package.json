@@ -1,7 +1,7 @@
 {
   "name": "tech.chiffon.bodyfit",
   "displayName": "Body Fit",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "unity": "2022.3",
   "description": "非対応衣装をアバターの体型に合わせ、体への貫通を BlendShape で補正する NDMF プラグイン。ボーンのスケールを一括適用する Body Scale も同梱。",
   "author": {
