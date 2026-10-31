@@ -651,11 +651,20 @@ namespace Hinata.BodyFit.Editor
                 if (cw >= 0.7f) { rw.Add(ratio); bw.Add(bodyR[i, j]); }
             }
 
-            // 胴体は胸の前だけが当たるなど断面が非対称なので、半分以上がきついときだけ太らせる (残りは押し出しに任せる)。
-            // 手足は 1/4 がきつければ全周を合わせる
-            float quant = limb ? 0.25f : 0.5f;
-            float su = Factor(ru, bu, opt, quant, out float fu);
-            float sw = Factor(rw, bw, opt, quant, out float fw);
+            // 手足は 1/4 がきつければ全周を合わせる。
+            // 胴体は胸の前だけが当たるなど断面が非対称なので、太らせるのは半分以上がきついときだけ (残りは押し出しに任せる)。
+            // 縮めるのは手足と同じく、一番きつい 1/4 でさえゆるいときだけ (ゆったりした服の腹回りを細くしない)
+            float su, sw, fu, fw;
+            if (limb)
+            {
+                su = Factor(ru, bu, opt, 0.25f, out fu);
+                sw = Factor(rw, bw, opt, 0.25f, out fw);
+            }
+            else
+            {
+                su = TorsoFactor(ru, bu, opt, out fu);
+                sw = TorsoFactor(rw, bw, opt, out fw);
+            }
 
             // 中心ずらしは筒状にぴったりした衣装向け。ゆったりした袖などは元から中心が体とずれている (垂れている) ので、
             // ゆったりしているほど弱める (手首で袖が折れたように持ち上がるのを防ぐ)
@@ -698,6 +707,16 @@ namespace Hinata.BodyFit.Editor
             bd.Scale = s;
             bd.Estimated = true;
             bd.Note = $"(衣装内径/体 = {fu:0.00} / {fw:0.00}{axial})";
+        }
+
+        static float TorsoFactor(List<float> ratios, List<float> bodyRadii, Options opt, out float f)
+        {
+            float grow = Factor(ratios, bodyRadii, opt, 0.5f, out float f50);
+            float shrink = Factor(ratios, bodyRadii, opt, 0.25f, out float f25);
+            f = f50;
+            if (f50 < 1f && grow > 1f) return grow;     // 半分以上が体より内側
+            if (f25 > 1f && shrink < 1f) { f = f25; return shrink; } // 一番きつい所でもゆるい
+            return 1f;
         }
 
         static float Factor(List<float> ratios, List<float> bodyRadii, Options opt, float quantile, out float f)
