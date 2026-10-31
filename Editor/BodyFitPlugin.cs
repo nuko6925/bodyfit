@@ -158,6 +158,7 @@ namespace Hinata.BodyFit.Editor
                             LooseRatio = f.looseRatio,
                             KeepShoes = f.hideFeetInShoes,
                             Verbose = verbose,
+                            Forward = root.forward,
                         });
                     log.Append(pr.Log);
                 }

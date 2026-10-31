@@ -27,6 +27,7 @@ namespace Hinata.BodyFit.Editor
             public float LooseRatio;    // 内径/外径 がこれ以上なら「元からゆったり」とみなして縮めない
             public bool KeepShoes;      // 靴 (Foot/Toes) は拡縮しない
             public bool Verbose;        // ボーンごとの倍率・内訳をログに出す
+            public Vector3 Forward;     // アバターの前方向 (ワールド)。胴体の前後ずれの補正に使う
         }
 
         static readonly (HumanBodyBones bone, HumanBodyBones[] next)[] Bones =
@@ -637,6 +638,44 @@ namespace Hinata.BodyFit.Editor
                 }
             }
 
+            // 胴体の前後ずれ: 前側がめり込み気味で背中側が空いているなら、前後の隙間が揃うまで衣装を前へずらす。
+            // (衣装の胴体がアバターより後ろに付いていると、首元〜胸の上だけが押し出されて段差になる)
+            // 左右は胸などで非対称なのでずらさない
+            string torsoShift = "";
+            if (!limb && bd.Coverage >= 0.75f && opt.Forward.sqrMagnitude > 0.5f)
+            {
+                var fl = bd.ToLocal.MultiplyVector(opt.Forward);
+                var f2 = new Vector2(fl[u], fl[w]);
+                if (f2.magnitude > 0.5f)
+                {
+                    f2.Normalize();
+                    var gf = new List<float>(); var gb = new List<float>();
+                    for (int i = 0; i < Slices; i++)
+                    for (int j = 0; j < Sectors; j++)
+                    {
+                        if (bodyR[i, j] <= 0f || clothR[i, j] == float.MaxValue) continue;
+                        float ang = -Mathf.PI + (j + 0.5f) * 2f * Mathf.PI / Sectors;
+                        float dot = Mathf.Cos(ang) * f2.x + Mathf.Sin(ang) * f2.y;
+                        float g = clothR[i, j] - bodyR[i, j];
+                        if (dot > 0.7f) gf.Add(g);
+                        else if (dot < -0.7f) gb.Add(g);
+                    }
+                    if (gf.Count >= 3 && gb.Count >= 3)
+                    {
+                        gf.Sort(); gb.Sort();
+                        float mf = gf[gf.Count / 2], mb = gb[gb.Count / 2];
+                        float d = Mathf.Min((mb - mf) * 0.5f, 0.04f);
+                        if (mf < opt.Ease + 0.005f && d > 0.003f)
+                        {
+                            var dl = Vector3.zero; dl[u] = f2.x * d; dl[w] = f2.y * d;
+                            bd.Offset = bd.Bone.rotation * dl;
+                            FillCloth(dl);
+                            torsoShift = $" / 前へ {d * 1000f:0.0}mm (前の隙間 {mf * 1000f:0.0} / 背中 {mb * 1000f:0.0})";
+                        }
+                    }
+                }
+            }
+
             // 角度ごとに u 方向 / w 方向へ振り分けて比を集める
             var ru = new List<float>(); var rw = new List<float>();
             var bu = new List<float>(); var bw = new List<float>();
@@ -668,7 +707,7 @@ namespace Hinata.BodyFit.Editor
 
             // 中心ずらしは筒状にぴったりした衣装向け。ゆったりした袖などは元から中心が体とずれている (垂れている) ので、
             // ゆったりしているほど弱める (手首で袖が折れたように持ち上がるのを防ぐ)
-            if (bd.Offset.sqrMagnitude > 0f)
+            if (limb && bd.Offset.sqrMagnitude > 0f)
             {
                 float loose = Mathf.Max(fu, fw);
                 float wgt = Mathf.Clamp01((opt.LooseRatio - loose) / Mathf.Max(opt.LooseRatio - 1f, 1e-3f));
@@ -706,7 +745,7 @@ namespace Hinata.BodyFit.Editor
             }
             bd.Scale = s;
             bd.Estimated = true;
-            bd.Note = $"(衣装内径/体 = {fu:0.00} / {fw:0.00}{axial})";
+            bd.Note = $"(衣装内径/体 = {fu:0.00} / {fw:0.00}{axial}{torsoShift})";
         }
 
         static float TorsoFactor(List<float> ratios, List<float> bodyRadii, Options opt, out float f)
