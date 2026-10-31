@@ -80,6 +80,7 @@ namespace Hinata.BodyFit.Editor
 
         public override void OnInspectorGUI()
         {
+            EditorGUILayout.LabelField(BodyFitVersion.Text, EditorStyles.miniLabel);
             var fitter = (BodyFitter)target;
             var avatar = fitter.GetComponentInParent<VRCAvatarDescriptor>(true); // プレビュー中は元が非アクティブ
 
