@@ -257,6 +257,9 @@ namespace Hinata.BodyFit.Editor
                         foreach (int q in l)
                         {
                             if (q == p || pinned[q]) continue;
+                            // 左右の脚 (腕) のように別の部位にある面どうしは結ばない (内股で左右のニーハイが膜のようにつながる)
+                            if (limb[p] != limb[q] && limb[p] >= Limb.LeftArm && limb[p] <= Limb.RightLeg &&
+                                limb[q] >= Limb.LeftArm && limb[q] <= Limb.RightLeg) continue;
                             var off = x0[q] - x0[p];
                             float d2 = off.sqrMagnitude;
                             if (d2 >= lim || d2 < 1e-12f || System.Array.IndexOf(nbrs[p], q) >= 0) continue;

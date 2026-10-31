@@ -241,7 +241,7 @@ namespace Hinata.BodyFit.Editor
 
                     var t = BodyFitSolver.CreateTarget(posed, Mask(smr));
                     t.Name = smr.name;
-                    if (settings.Tight)
+                    // 部位 (胴・左右の腕・左右の脚): 密着の引き寄せ先と、左右の脚どうしをレイヤー結合しないために使う
                     {
                         var vl = Limb.OfVertices(smr, smr.sharedMesh, limbRoots);
                         if (vl != null)
