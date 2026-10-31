@@ -226,6 +226,7 @@ namespace Hinata.BodyFit.Editor
                         log.AppendLine($"  {smr.name}: スキニング差 最大 {posed.BakeDeviation * 1000f:F1} mm");
 
                     var t = BodyFitSolver.CreateTarget(posed, Mask(smr));
+                    t.Name = smr.name;
                     if (settings.Tight)
                     {
                         var vl = Limb.OfVertices(smr, smr.sharedMesh, limbRoots);
@@ -267,7 +268,8 @@ namespace Hinata.BodyFit.Editor
                     if (islands > 0) log.AppendLine($"  小パーツ {islands} 個を周囲の面に追従");
                     if (f.fitBust)
                         log.AppendLine(bustBones.Count == 0 ? "  胸の余り: 胸のボーンが見つからないためスキップ"
-                                                            : $"  胸の余り: 胸ボーン {bustBones.Count} 本 / {r.BustPulled} 頂点を衣装のゆとりまで引き寄せ");
+                                                            : $"  胸の余り: 胸ボーン {bustBones.Count} 本 / {r.BustPulled} 頂点を衣装のゆとりまで引き寄せ" +
+                                                              (r.BustLog != null && r.BustLog.Count > 0 ? "\n    " + string.Join("\n    ", r.BustLog) : ""));
                     log.AppendLine($"  ソルバー: 粒子 {r.Particles} / 衝突候補 {r.Candidates} / レイヤー結合 {r.LayerPairs} / 体→衣装の拘束 {r.Bindings} / {r.Milliseconds} ms");
                 }
 

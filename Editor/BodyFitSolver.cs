@@ -693,6 +693,7 @@ namespace Hinata.BodyFit.Editor
 
         internal sealed class Target
         {
+            internal string Name;
             internal Posed Posed;
             internal int[] Weld;
             internal int GroupCount;

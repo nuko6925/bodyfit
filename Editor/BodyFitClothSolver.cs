@@ -29,6 +29,7 @@ namespace Hinata.BodyFit.Editor
             public int LayerPairs;
             public int Bindings;
             public int BustPulled;
+            public List<string> BustLog;
             public long Milliseconds;
         }
 
@@ -335,33 +336,47 @@ namespace Hinata.BodyFit.Editor
                 var gap0 = new float[n];
                 var onBust = new bool[n];
                 var has = new bool[n];
+                // 胸の生地は大きく浮いていることがあるので、maxDistance より広く探す
                 Parallel.For(0, n, p =>
                 {
                     if (pinned[p] || tight[p]) return;
-                    if (!body.ClosestBust(x0[p], maxDist[p], out var q, out var nn, out bool bst)) return;
+                    if (!body.ClosestBust(x0[p], Mathf.Max(maxDist[p], 0.1f), out var q, out var nn, out bool bst)) return;
                     gap0[p] = Vector3.Dot(x0[p] - q, nn);
                     onBust[p] = bst;
                     has[p] = true;
                 });
                 float yMin = body.BustMinY - 0.03f, yMax = body.BustMaxY + 0.03f;
+                res.BustLog = new List<string>();
                 for (int ti = 0; ti < targets.Count; ti++)
                 {
                     int o = offset[ti], cnt = targets[ti].GroupCount;
                     var ref0 = new List<float>();
+                    int nBust = 0; float maxBustGap = 0f;
                     for (int p = o; p < o + cnt; p++)
-                        if (has[p] && innermost[p] && !onBust[p] && gap0[p] > 0f && x0[p].y >= yMin && x0[p].y <= yMax)
-                            ref0.Add(gap0[p]);
-                    if (ref0.Count < 30) continue; // 胸の高さに十分な生地がない (スカート・靴など)
+                    {
+                        if (!has[p] || !innermost[p]) continue;
+                        if (onBust[p]) { nBust++; maxBustGap = Mathf.Max(maxBustGap, gap0[p]); }
+                        else if (gap0[p] > 0f && x0[p].y >= yMin && x0[p].y <= yMax) ref0.Add(gap0[p]);
+                    }
+                    if (nBust == 0) continue;
+                    if (ref0.Count < 30)
+                    {
+                        res.BustLog.Add($"{targets[ti].Name}: 胸の高さの生地が少ないためスキップ (胸 {nBust} / 脇・背中 {ref0.Count})");
+                        continue;
+                    }
                     ref0.Sort();
                     float ease = ref0[ref0.Count / 2];
+                    int pulled = 0;
                     for (int p = o; p < o + cnt; p++)
                     {
                         if (!has[p] || !innermost[p] || !onBust[p]) continue;
                         float target = Mathf.Max(ease, margin[p]);
                         if (gap0[p] <= target + 0.003f) continue;
                         bustGap[p] = target;
-                        bustPulled++;
+                        pulled++;
                     }
+                    bustPulled += pulled;
+                    res.BustLog.Add($"{targets[ti].Name}: ゆとり {ease * 1000f:0.0}mm (脇・背中 {ref0.Count}) / 胸の生地 {nBust} 頂点・最大の隙間 {maxBustGap * 1000f:0.0}mm → {pulled} 頂点を引き寄せ");
                 }
             }
             res.BustPulled = bustPulled;
