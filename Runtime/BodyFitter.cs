@@ -68,9 +68,11 @@ namespace Hinata.BodyFit
         [Tooltip("衣装のボーンの位置・スケール・Scale Adjuster を、アバターの対応するボーンに揃える (Merge Armature の前に実行)")]
         public bool alignJoints = true;
 
-        [Tooltip("アバター側の MA Scale Adjuster (体型改変の太さ) を衣装にも写す。衣装がもともとその素体に合っている (対応衣装) 場合に使う。" +
-                 "非対応衣装では太さは体型合わせが実際の体を測って合わせるので、写すと二重に太くなる")]
-        public bool copyScaleAdjusters = false;
+        [Tooltip("アバター側の体型改変 (ボーンのスケールと MA Scale Adjuster) を衣装にも写す。" +
+                 "衣装がもともとその素体に合っている (対応衣装) 場合に使う。" +
+                 "非対応衣装では長さは関節の位置合わせ、太さは体型合わせで合わせるので、写すと二重に掛かる")]
+        [UnityEngine.Serialization.FormerlySerializedAs("copyScaleAdjusters")]
+        public bool copyBodyShape = false;
 
         [Tooltip("体と衣装の断面をボーンごとに比べ、衣装の太さを合わせる")]
         public bool autoProportion = true;

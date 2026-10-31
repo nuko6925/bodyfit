@@ -524,7 +524,7 @@ namespace Hinata.BodyFit.Editor
 
                     // ボーン自体のスケール (BSA の Upper_leg 0.8 等) も揃える。
                     // MA は位置しか合わせないので、アバター側だけ縮めると、衣装 (特に統合で付け替えられる靴などの子) が元の大きさのまま残る
-                    if ((baseBone.localScale - mergeBone.localScale).sqrMagnitude > 1e-8f)
+                    if (fitter.copyBodyShape && (baseBone.localScale - mergeBone.localScale).sqrMagnitude > 1e-8f)
                     {
                         if (scaled.Count < 8) scaled.Add($"{mergeBone.name} x{baseBone.localScale.x:0.###}");
                         mergeBone.localScale = baseBone.localScale;
@@ -534,7 +534,7 @@ namespace Hinata.BodyFit.Editor
                     // アバター側の MA Scale Adjuster (BSA の太さ調整) も衣装側へ写す。
                     // Scale Adjuster はそのボーンに直接割り当てられたメッシュにしか効かないので、衣装には効かない
                     var baseAdj = baseBone.GetComponent<nadena.dev.modular_avatar.core.ModularAvatarScaleAdjuster>();
-                    if (fitter.copyScaleAdjusters && baseAdj != null && mergeBone.GetComponent<nadena.dev.modular_avatar.core.ModularAvatarScaleAdjuster>() == null)
+                    if (fitter.copyBodyShape && baseAdj != null && mergeBone.GetComponent<nadena.dev.modular_avatar.core.ModularAvatarScaleAdjuster>() == null)
                     {
                         var adj = mergeBone.gameObject.AddComponent<nadena.dev.modular_avatar.core.ModularAvatarScaleAdjuster>();
                         adj.Scale = baseAdj.Scale;

@@ -35,7 +35,7 @@ namespace Hinata.BodyFit.Editor
                     {
                         Prop(nameof(BodyFitter.alignJoints));
                         using (new EditorGUI.DisabledScope(!((BodyFitter)target).alignJoints))
-                            Prop(nameof(BodyFitter.copyScaleAdjusters));
+                            Prop(nameof(BodyFitter.copyBodyShape));
                         Prop(nameof(BodyFitter.autoProportion));
                         using (new EditorGUI.DisabledScope(!((BodyFitter)target).autoProportion))
                         {
