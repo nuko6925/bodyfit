@@ -84,8 +84,6 @@ namespace Hinata.BodyFit.Editor
             public float ReverseDepth;
             public int Layer;
             public bool Tight;           // 体に密着させる (浮いている部分も引き寄せる)
-            public float Falloff;        // 押し出しをなじませる範囲 (m)。0 なら全体の設定
-            public float Drape;          // > 0: くぼみを埋めた体 (布が張った形) で判定する
         }
 
         internal struct Stats

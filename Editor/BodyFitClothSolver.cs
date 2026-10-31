@@ -36,8 +36,7 @@ namespace Hinata.BodyFit.Editor
 
         /// <param name="passive">補正しないが「外側を覆う面」として扱う衣装 (個別設定でスキップしたメッシュ)</param>
         internal static Result Solve(IList<BodyFitSolver.Target> targets, IList<BodyFitSolver.Settings> settings,
-                                     BodyFitSolver.Collider body, Params prm, IList<BodyFitSolver.Posed> passive = null,
-                                     BodyFitSolver.Collider drapeBody = null)
+                                     BodyFitSolver.Collider body, Params prm, IList<BodyFitSolver.Posed> passive = null)
         {
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var res = new Result();
@@ -63,7 +62,6 @@ namespace Hinata.BodyFit.Editor
             var axis = new Vector3[n];     // 面の向き (表裏は区別しない軸)
             var radial = new Vector3[n];   // ボーンの軸から外向き (深い貫通の脱出方向)
             var tight = new bool[n];       // 体に密着させる
-            var useDrape = new bool[n];    // くぼみを埋めた体で判定する (ゆったりした服)
             var limb = new byte[n];        // 部位 (密着の引き寄せ先を同じ部位に限る)
 
             var allTris = new List<int>();
@@ -80,7 +78,7 @@ namespace Hinata.BodyFit.Editor
                     foreach (var nb in adj[g])
                         if (nb > g) { edgeSum += (t.GPos[g] - t.GPos[nb]).magnitude; edgeCnt++; }
                 float edge = edgeCnt > 0 ? (float)(edgeSum / edgeCnt) : 0.005f;
-                float k = Mathf.Max(1f, (s.Falloff > 0f ? s.Falloff : prm.Falloff) / Mathf.Max(edge, 1e-4f));
+                float k = Mathf.Max(1f, prm.Falloff / Mathf.Max(edge, 1e-4f));
                 float gm = Mathf.Clamp(1f / (k * k), 0.0005f, 0.5f);
 
                 for (int g = 0; g < t.GroupCount; g++)
@@ -93,7 +91,6 @@ namespace Hinata.BodyFit.Editor
                     reach[p] = s.ReverseDepth;
                     layer[p] = s.Layer;
                     tight[p] = s.Tight;
-                    useDrape[p] = drapeBody != null && s.Drape > 0f;
                     limb[p] = t.GLimb != null ? t.GLimb[g] : Limb.Any;
                     gamma[p] = gm;
                     owner[p] = ti;
@@ -130,8 +127,7 @@ namespace Hinata.BodyFit.Editor
 
             // 体は細かいグリッドで引き直す (反復中の近傍探索を速くする)
             body.Build(0.01f);
-            drapeBody?.Build(0.01f);
-            BodyFitSolver.Collider Col(int p) => useDrape[p] ? drapeBody : body;
+            BodyFitSolver.Collider Col(int p) => body;
 
             // ---------------------------------------------------------------
             // 衝突候補: 初期位置で体から maxDistance 以内の粒子
