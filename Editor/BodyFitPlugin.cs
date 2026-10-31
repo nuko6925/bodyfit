@@ -64,7 +64,7 @@ namespace Hinata.BodyFit.Editor
 
                 // 関節合わせ: Merge Armature が統合する前に、衣装のボーンをアバターの対応ボーンの位置へ移す
                 // (MA の「ベースアバターに位置を合わせる」をビルド時に行うのと同じ。アバター側の体型変更後の位置に合う)
-                if (fitter.alignJoints) job.JointLog = AlignJoints(fitter, fitter.verboseLog, root.GetComponent<Animator>());
+                if (fitter.alignJoints) job.JointLog = AlignJoints(fitter, fitter.verboseLog, root.GetComponent<Animator>(), root);
 
                 job.Targets = ResolveTargets(fitter, job.Bodies);
                 foreach (var o in fitter.perMesh)
@@ -437,8 +437,12 @@ namespace Hinata.BodyFit.Editor
             return res;
         }
 
-        static string AlignJoints(BodyFitter fitter, bool verbose, Animator animator)
+        static string AlignJoints(BodyFitter fitter, bool verbose, Animator animator, Transform avatarRoot)
         {
+            // ユーザーが衣装を置いた位置 (衣装のルートがアバターのルートからずれている分) を基準にする。
+            // 関節をアバターに合わせたうえで、このずれを足す (衣装を Y +0.01 に置けば 1cm 上に付く)
+            var userOffset = fitter.transform.position - avatarRoot.position;
+            if (userOffset.sqrMagnitude < 1e-10f) userOffset = Vector3.zero;
             // 手・足の下 (指) は、名前で対応が取れないボーンを方向で対応付ける
             var dirParents = new HashSet<Transform>();
             if (animator != null && animator.isHuman)
@@ -560,10 +564,10 @@ namespace Hinata.BodyFit.Editor
                         }
                     }
 
-                    var d = (baseBone.position - mergeBone.position).magnitude;
+                    var d = (baseBone.position + userOffset - mergeBone.position).magnitude;
                     if (d >= 1e-5f)
                     {
-                        mergeBone.position = baseBone.position;
+                        mergeBone.position = baseBone.position + userOffset;
                         n++;
                         if (d > max) { max = d; maxName = mergeBone.name; }
                     }
@@ -583,7 +587,9 @@ namespace Hinata.BodyFit.Editor
                     }
                 }
             }
-            var msg = (verbose ? $"  関節合わせ: Merge Armature {mergers.Length} 個 / {string.Join(" / ", diag)}\n" : "") +
+            var offMsg = userOffset != Vector3.zero
+                ? $"  関節合わせ: 衣装の配置位置のずれ ({userOffset.x * 1000f:0.0}, {userOffset.y * 1000f:0.0}, {userOffset.z * 1000f:0.0}) mm を維持\n" : "";
+            var msg = offMsg + (verbose ? $"  関節合わせ: Merge Armature {mergers.Length} 個 / {string.Join(" / ", diag)}\n" : "") +
                       (n > 0 ? $"  関節合わせ: {n} ボーンをアバターの位置へ (最大 {max * 1000f:0.0}mm: {maxName})"
                              : $"  関節合わせ: 位置のずれなし (対応 {pairCount} 組)");
             if (ns > 0) msg += $"\n  関節合わせ: {ns} ボーンのスケールをアバターに合わせた" + (verbose ? $" ({string.Join(", ", scaled)})" : "");

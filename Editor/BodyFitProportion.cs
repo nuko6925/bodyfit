@@ -210,19 +210,8 @@ namespace Hinata.BodyFit.Editor
             var snap = new Dictionary<Transform, Vector3>();
             var bdSnap = new Dictionary<BoneData, Vector3>();
 
-            // --- 上半身の位置合わせ ---
-            //   骨の位置が合っていても、元のアバターとは骨に対する胸や肩の高さが違うため、衣装の胴体が体に対して
-            //   上下・前後にずれていることがある (首元〜胸の上だけがめり込む等)。
-            //   胴体の生地を少しずつ動かして体へのめり込みが一番少ない位置を探し、上半身 (胴・腕) の衣装全体をその分動かす
-            var upperIds = new HashSet<HumanBodyBones>
-            {
-                HumanBodyBones.Spine, HumanBodyBones.Chest, HumanBodyBones.UpperChest,
-                HumanBodyBones.LeftUpperArm, HumanBodyBones.RightUpperArm, HumanBodyBones.LeftLowerArm, HumanBodyBones.RightLowerArm,
-                HumanBodyBones.LeftHand, HumanBodyBones.RightHand,
-            };
-            var upperShift = FindUpperShift(avatarRoot, bodies, clothVerts, map, opt, out string shiftLog);
-            if (shiftLog != null) log.AppendLine(shiftLog);
-            Vector3 GOf(BoneData b) => b != null && upperIds.Contains(b.Id) ? upperShift : Vector3.zero;
+            // (上半身の位置は、ユーザーが衣装を置いた位置を基準にする: BodyFitBuild.AlignJoints)
+            Vector3 GOf(BoneData b) => Vector3.zero;
             var head = animator.GetBoneTransform(HumanBodyBones.Head);
 
             foreach (var (world, bone, mi) in clothVerts)
@@ -362,88 +351,6 @@ namespace Hinata.BodyFit.Editor
                           $"{map.Count} 個の衣装ボーンを対応付け / 追従 {followed} / {rebound} メッシュに適用\n");
             result.Log = log.ToString();
             return result;
-        }
-
-        /// <summary>
-        /// 胴体 (Spine / Chest / UpperChest) に付く衣装の頂点を上下に動かしてみて、
-        /// 体へのめり込みの合計を測る。0 から 5mm ずつ進め、次の 5mm でめり込みが最初の 1 割以上減るあいだだけ進む
-        /// (効きが鈍ったら止める。めり込みを減らすためだけに上限まで浮かせない)。2 割以上減らなければ 0。
-        /// </summary>
-        static Vector3 FindUpperShift(Transform avatarRoot, IList<SkinnedMeshRenderer> bodies,
-                                      List<(Vector3 world, Transform bone, int mesh)> clothVerts,
-                                      Dictionary<Transform, BoneData> map, Options opt, out string log)
-        {
-            log = null;
-            var samples = new List<Vector3>();
-            foreach (var (world, bone, _) in clothVerts)
-                if (map.TryGetValue(bone, out var bd) &&
-                    (bd.Id == HumanBodyBones.Spine || bd.Id == HumanBodyBones.Chest || bd.Id == HumanBodyBones.UpperChest))
-                    samples.Add(world);
-            if (samples.Count < 50) return Vector3.zero;
-            int stride = Mathf.Max(1, samples.Count / 1000);
-            var pts = new List<Vector3>();
-            for (int i = 0; i < samples.Count; i += stride) pts.Add(samples[i]);
-
-            var col = new BodyFitSolver.Collider();
-            foreach (var b in bodies)
-                col.Add(BodyFitSolver.Pose(b, b.sharedMesh), BodyFitSolver.Pose(b, b.sharedMesh, applyBlendShapes: false));
-            col.Build(0.02f);
-
-            var up = avatarRoot.up;
-            float ease = Mathf.Max(opt.Ease, 0.001f);
-            const float R = 0.05f;
-
-            bool Query(Vector3 p, out float s, out Vector3 n)
-            {
-                s = R; n = Vector3.zero;
-                if (!col.Closest(p, R, out var q, out n, out _, out var why)) return false;
-                s = why == BodyFitSolver.InsideReason.Boundary ? (p - q).magnitude : Vector3.Dot(p - q, n);
-                return true;
-            }
-
-            // 肩の上で体に触れている点 (体の面が上向き・めり込んではいない)
-            var s0 = new float[pts.Count];
-            var onTop = new bool[pts.Count];
-            System.Threading.Tasks.Parallel.For(0, pts.Count, i =>
-            {
-                if (!Query(pts[i], out s0[i], out var n)) return;
-                onTop[i] = Vector3.Dot(n, up) > 0.6f && s0[i] >= 0f && s0[i] < ease + 0.01f;
-            });
-
-            (float pen, float lift) Cost(Vector3 g)
-            {
-                var pen = new double[pts.Count];
-                var lift = new double[pts.Count];
-                System.Threading.Tasks.Parallel.For(0, pts.Count, i =>
-                {
-                    Query(pts[i] + g, out float s, out _);
-                    if (s < ease) pen[i] = ease - s;
-                    if (onTop[i] && s > s0[i]) lift[i] = s - s0[i];
-                });
-                return ((float)pen.Sum(), (float)lift.Sum());
-            }
-
-            // めり込みが「次の 5mm で最初の 1 割以上減る」あいだだけ進む (効きが鈍ったら止める。上限まで動かさない)
-            var penAt = new Dictionary<int, float>();
-            var table = new List<string>();
-            for (int k = -2; k <= 6; k++)
-            {
-                penAt[k] = Cost(up * (k * 0.005f)).pen;
-                table.Add($"{k * 5:+0;-0;0}mm: {penAt[k] * 1000f:0}");
-            }
-            float p0 = penAt[0];
-            int Walk(int dir)
-            {
-                int k = 0;
-                while (penAt.ContainsKey(k + dir) && penAt[k] - penAt[k + dir] >= p0 * 0.1f) k += dir;
-                return k;
-            }
-            int ku = Walk(1), kd = Walk(-1);
-            int bestK = penAt[ku] <= penAt[kd] ? ku : kd;
-            if (p0 <= 1e-4f || penAt[bestK] > p0 * 0.8f) bestK = 0; // 2 割以上減らないなら動かさない
-            var g0 = up * (bestK * 0.005f);
-            log = $"    上半身の位置合わせ: 上へ {bestK * 5}mm  (めり込み: {string.Join(" / ", table)}; {pts.Count} 点)";
-            return g0;
         }
 
         static Transform MakeProxy(Transform t, Vector3? centroid, Dictionary<Transform, BoneData> map, Dictionary<Transform, Vector3> snap,
