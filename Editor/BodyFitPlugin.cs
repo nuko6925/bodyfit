@@ -220,7 +220,7 @@ namespace Hinata.BodyFit.Editor
                     job.Overrides.TryGetValue(smr, out var ov);
                     var settings = ov == null
                         ? new BodyFitSolver.Settings { Margin = f.margin, MaxDistance = f.maxDistance, ReverseDepth = f.reverseDepth }
-                        : new BodyFitSolver.Settings { Margin = ov.margin, MaxDistance = ov.maxDistance, ReverseDepth = ov.reverseDepth, Layer = ov.layer, Tight = ov.tight };
+                        : new BodyFitSolver.Settings { Margin = ov.margin, MaxDistance = ov.maxDistance, ReverseDepth = ov.reverseDepth, Layer = ov.layer, Tight = ov.tight, Falloff = ov.falloff };
                     if (verbose && posed.BakeDeviation > 0.001f)
                         log.AppendLine($"  {smr.name}: スキニング差 最大 {posed.BakeDeviation * 1000f:F1} mm");
 

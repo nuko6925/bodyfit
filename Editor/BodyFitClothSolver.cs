@@ -74,7 +74,7 @@ namespace Hinata.BodyFit.Editor
                     foreach (var nb in adj[g])
                         if (nb > g) { edgeSum += (t.GPos[g] - t.GPos[nb]).magnitude; edgeCnt++; }
                 float edge = edgeCnt > 0 ? (float)(edgeSum / edgeCnt) : 0.005f;
-                float k = Mathf.Max(1f, prm.Falloff / Mathf.Max(edge, 1e-4f));
+                float k = Mathf.Max(1f, (s.Falloff > 0f ? s.Falloff : prm.Falloff) / Mathf.Max(edge, 1e-4f));
                 float gm = Mathf.Clamp(1f / (k * k), 0.0005f, 0.5f);
 
                 for (int g = 0; g < t.GroupCount; g++)

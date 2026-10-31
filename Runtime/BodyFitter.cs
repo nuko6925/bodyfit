@@ -29,6 +29,10 @@ namespace Hinata.BodyFit
 
         [Tooltip("体が衣装の面を突き抜けている箇所を、この深さまで検出する (m)。0 で無効")]
         [Min(0f)] public float reverseDepth = 0.02f;
+
+        [Tooltip("押し出した部分の周囲がなじむ範囲 (m)。0 なら Body Fitter 本体の設定。" +
+                 "パーカーなどゆったりした服で、胸などに生地が貼り付いたようになる場合は大きくする (目安 0.06〜0.1)")]
+        [Min(0f)] public float falloff = 0f;
     }
 
     /// <summary>
