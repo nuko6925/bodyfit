@@ -19,6 +19,7 @@ namespace Hinata.BodyFit.Editor
             public int Iterations;
             public float Falloff;        // なじませ範囲 (m)
             public float LayerDistance;  // レイヤー結合の距離 (m)
+            public bool FitBust;         // 胸の余りを詰める
         }
 
         internal struct Result
@@ -27,6 +28,7 @@ namespace Hinata.BodyFit.Editor
             public int Candidates;
             public int LayerPairs;
             public int Bindings;
+            public int BustPulled;
             public long Milliseconds;
         }
 
@@ -305,9 +307,10 @@ namespace Hinata.BodyFit.Editor
             //   厚みのある服の表側や、上に重なったベルト等はレイヤー結合で付いてくるので、厚みや重なりが潰れない
             // ---------------------------------------------------------------
             var pull = new bool[n];
+            var innermost = new bool[n];
             for (int p = 0; p < n; p++)
             {
-                if (!tight[p] || pinned[p]) continue;
+                if (pinned[p]) continue;
                 bool inner = true;
                 for (int k = 0; k < K; k++)
                 {
@@ -315,8 +318,53 @@ namespace Hinata.BodyFit.Editor
                     if (pn[idx] < 0) break;
                     if (pW[idx] >= 1f) { inner = false; break; } // 自分より体側に別の層がある
                 }
-                pull[p] = inner;
+                innermost[p] = inner;
+                pull[p] = tight[p] && inner;
             }
+
+            // ---------------------------------------------------------------
+            // 胸の余りを詰める: 衣装の胸が体の胸より大きくて浮いている所を、その衣装の「ゆとり」まで引き寄せる。
+            //   ゆとり = 胸と同じ高さの脇・背中などで、その衣装が体から離れている距離 (中央値)。
+            //   ゆったりした服はゆったりしたまま、胸の前だけが余らなくなる
+            // ---------------------------------------------------------------
+            var bustGap = new float[n];
+            for (int p = 0; p < n; p++) bustGap[p] = -1f;
+            int bustPulled = 0;
+            if (prm.FitBust && body.HasBust)
+            {
+                var gap0 = new float[n];
+                var onBust = new bool[n];
+                var has = new bool[n];
+                Parallel.For(0, n, p =>
+                {
+                    if (pinned[p] || tight[p]) return;
+                    if (!body.ClosestBust(x0[p], maxDist[p], out var q, out var nn, out bool bst)) return;
+                    gap0[p] = Vector3.Dot(x0[p] - q, nn);
+                    onBust[p] = bst;
+                    has[p] = true;
+                });
+                float yMin = body.BustMinY - 0.03f, yMax = body.BustMaxY + 0.03f;
+                for (int ti = 0; ti < targets.Count; ti++)
+                {
+                    int o = offset[ti], cnt = targets[ti].GroupCount;
+                    var ref0 = new List<float>();
+                    for (int p = o; p < o + cnt; p++)
+                        if (has[p] && innermost[p] && !onBust[p] && gap0[p] > 0f && x0[p].y >= yMin && x0[p].y <= yMax)
+                            ref0.Add(gap0[p]);
+                    if (ref0.Count < 30) continue; // 胸の高さに十分な生地がない (スカート・靴など)
+                    ref0.Sort();
+                    float ease = ref0[ref0.Count / 2];
+                    for (int p = o; p < o + cnt; p++)
+                    {
+                        if (!has[p] || !innermost[p] || !onBust[p]) continue;
+                        float target = Mathf.Max(ease, margin[p]);
+                        if (gap0[p] <= target + 0.003f) continue;
+                        bustGap[p] = target;
+                        bustPulled++;
+                    }
+                }
+            }
+            res.BustPulled = bustPulled;
 
             // ---------------------------------------------------------------
             // 逆方向の拘束: 体の各頂点を、その法線上で一番外側にある衣装の面に結び付ける
@@ -436,7 +484,7 @@ namespace Hinata.BodyFit.Editor
                     int p = cand[ci];
                     float moved = (x[p] - qpos[p]).magnitude;
                     float tgt = margin[p];
-                    if (!pull[p] && lastSigned[p] - moved > tgt + 0.002f)
+                    if (!pull[p] && bustGap[p] < 0f && lastSigned[p] - moved > tgt + 0.002f)
                     {
                         if (last) hitFwd[p] = false;
                         return;
@@ -481,6 +529,13 @@ namespace Hinata.BodyFit.Editor
                             if (last) hitPull[p] = true;
                         }
                         signed = tgt;
+                    }
+                    else if (bustGap[p] >= 0f && signed > bustGap[p])
+                    {
+                        // 胸の余り: 衣装のゆとりの距離まで引き寄せる
+                        x[p] -= nn * (signed - bustGap[p]);
+                        if (last) hitPull[p] = true;
+                        signed = bustGap[p];
                     }
                     lastSigned[p] = signed;
                     if (last) hitFwd[p] = hit;

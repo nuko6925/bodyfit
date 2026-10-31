@@ -253,6 +253,11 @@ namespace Hinata.BodyFit.Editor
             readonly List<Vector3> _pos = new List<Vector3>();
             readonly List<int> _tri = new List<int>();
             readonly List<byte> _triLimb = new List<byte>();   // 三角形ごとの部位 (Limb.*)
+            readonly List<bool> _triBust = new List<bool>();   // 胸の三角形か
+            float _bustMinY = float.MaxValue, _bustMaxY = float.MinValue;
+            internal bool HasBust => _bustMinY <= _bustMaxY;
+            internal float BustMinY => _bustMinY;
+            internal float BustMaxY => _bustMaxY;
 
             int[] _weld;              // 頂点 → 溶接グループ
             Vector3[] _gSmooth;       // グループごとの面積重み法線 (押し出し方向用)
@@ -274,7 +279,8 @@ namespace Hinata.BodyFit.Editor
 
             /// <param name="ignore">true の頂点を含む三角形は判定に使わない (靴の中の足など)</param>
             /// <param name="limb">頂点ごとの部位 (Limb.*)。null なら部位なし (どの部位の問い合わせにも当たる)</param>
-            public void Add(Posed posed, Posed rest = null, bool[] ignore = null, byte[] limb = null)
+            /// <param name="bust">頂点ごとに胸か (胸の余りを詰める処理で使う)</param>
+            public void Add(Posed posed, Posed rest = null, bool[] ignore = null, byte[] limb = null, bool[] bust = null)
             {
                 int baseIndex = _pos.Count;
                 _pos.AddRange(posed.World);
@@ -284,7 +290,29 @@ namespace Hinata.BodyFit.Editor
                     if (ignore != null && (ignore[t[i]] || ignore[t[i + 1]] || ignore[t[i + 2]])) { Ignored++; continue; }
                     _tri.Add(baseIndex + t[i]); _tri.Add(baseIndex + t[i + 1]); _tri.Add(baseIndex + t[i + 2]);
                     _triLimb.Add(limb != null ? limb[t[i]] : Limb.Any);
+                    bool b = bust != null && (bust[t[i]] || bust[t[i + 1]] || bust[t[i + 2]]);
+                    _triBust.Add(b);
+                    if (b)
+                        for (int k = 0; k < 3; k++)
+                        {
+                            float y = posed.World[t[i + k]].y;
+                            if (y < _bustMinY) _bustMinY = y;
+                            if (y > _bustMaxY) _bustMaxY = y;
+                        }
                 }
+            }
+
+            /// <summary>最近傍点・なめらかな法線と、そこが胸の面か。スレッドセーフ。</summary>
+            public bool ClosestBust(Vector3 p, float radius, out Vector3 point, out Vector3 normal, out bool bust)
+            {
+                normal = default; bust = false;
+                int tri = ClosestTriIndex(p, radius, Limb.Any, out point, out var bc);
+                if (tri < 0) return false;
+                int g0 = _weld[_tri[tri * 3]], g1 = _weld[_tri[tri * 3 + 1]], g2 = _weld[_tri[tri * 3 + 2]];
+                normal = (_gSmooth[g0] * bc.x + _gSmooth[g1] * bc.y + _gSmooth[g2] * bc.z).normalized;
+                if (normal.sqrMagnitude < 0.5f) normal = _fn[tri];
+                bust = _triBust[tri];
+                return true;
             }
 
             /// <summary>

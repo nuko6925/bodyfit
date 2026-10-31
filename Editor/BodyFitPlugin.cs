@@ -171,6 +171,7 @@ namespace Hinata.BodyFit.Editor
 
                 // 3. 体の当たり判定
                 var limbRoots = Limb.Roots(ctx.AvatarRootObject.GetComponent<Animator>());
+                var bustBones = f.fitBust ? FindBustBones(ctx.AvatarRootObject.GetComponent<Animator>()) : new HashSet<Transform>();
                 // デバッグ表示は Hips 基準で記録する (後から別のツールが Armature を動かしても表示がずれない)
                 var anim = ctx.AvatarRootObject.GetComponent<Animator>();
                 var debugAnchor = anim != null && anim.isHuman && anim.GetBoneTransform(HumanBodyBones.Hips) != null
@@ -192,7 +193,7 @@ namespace Hinata.BodyFit.Editor
                     // 胸の先などの細かい凹凸を、布が張ったようにならしてから判定に使う (服に体の細部が浮き出ない)
                     if (f.bodySmoothing > 0f) BodyFitSolver.Envelope(bp, f.bodySmoothing);
                     collider.Add(bp, BodyFitSolver.Pose(b, b.sharedMesh, applyBlendShapes: false), ign,
-                                 Limb.OfVertices(b, b.sharedMesh, limbRoots));
+                                 Limb.OfVertices(b, b.sharedMesh, limbRoots), BustVertices(b, bustBones));
                     if (verbose)
                         log.AppendLine($"  体 {b.name}: スキニング差 (手計算 vs Unity) 最大 {bp.BakeDeviation * 1000f:F1} mm" +
                                        (bp.Baked ? "" : "  ※BakeMesh 失敗、手計算を使用"));
@@ -256,6 +257,7 @@ namespace Hinata.BodyFit.Editor
                         Iterations = f.solverIterations,
                         Falloff = f.falloff,
                         LayerDistance = f.layerFollowDistance,
+                        FitBust = f.fitBust,
                     }, passive);
                 Lap("ソルバー");
                 int islands = BodyFitSolver.FollowIslands(prepared.Select(p => p.t).ToList(), f.islandMaxSize, 0.03f);
@@ -263,6 +265,9 @@ namespace Hinata.BodyFit.Editor
                 if (verbose)
                 {
                     if (islands > 0) log.AppendLine($"  小パーツ {islands} 個を周囲の面に追従");
+                    if (f.fitBust)
+                        log.AppendLine(bustBones.Count == 0 ? "  胸の余り: 胸のボーンが見つからないためスキップ"
+                                                            : $"  胸の余り: 胸ボーン {bustBones.Count} 本 / {r.BustPulled} 頂点を衣装のゆとりまで引き寄せ");
                     log.AppendLine($"  ソルバー: 粒子 {r.Particles} / 衝突候補 {r.Candidates} / レイヤー結合 {r.LayerPairs} / 体→衣装の拘束 {r.Bindings} / {r.Milliseconds} ms");
                 }
 
@@ -655,6 +660,58 @@ namespace Hinata.BodyFit.Editor
             else if (s.EndsWith("left")) s = s.Substring(0, s.Length - 4) + "l";
             else if (s.EndsWith("right")) s = s.Substring(0, s.Length - 5) + "r";
             return s;
+        }
+
+        /// <summary>胸のボーン: Chest / UpperChest の下で、名前に breast / bust / mune / oppai / chichi を含むもの (子孫も含む)。</summary>
+        static HashSet<Transform> FindBustBones(Animator animator)
+        {
+            var set = new HashSet<Transform>();
+            if (animator == null || !animator.isHuman) return set;
+            foreach (var hb in new[] { HumanBodyBones.Chest, HumanBodyBones.UpperChest })
+            {
+                var chest = animator.GetBoneTransform(hb);
+                if (chest == null) continue;
+                foreach (Transform c in chest)
+                {
+                    var n = c.name.ToLowerInvariant();
+                    if (!(n.Contains("breast") || n.Contains("bust") || n.Contains("mune") || n.Contains("oppai") || n.Contains("chichi"))) continue;
+                    foreach (var t in c.GetComponentsInChildren<Transform>(true)) set.Add(t);
+                }
+            }
+            return set;
+        }
+
+        static bool[] BustVertices(SkinnedMeshRenderer smr, HashSet<Transform> bustBones)
+        {
+            if (bustBones.Count == 0) return null;
+            var mesh = smr.sharedMesh;
+            var bones = smr.bones;
+            var isBust = new bool[bones.Length];
+            bool any = false;
+            for (int i = 0; i < bones.Length; i++)
+            {
+                if (bones[i] == null) continue;
+                // MA の Scale Adjuster で付け替えられた ScaleProxy はボーンの子なので親も見る
+                for (var c = bones[i]; c != null && c != smr.transform; c = c.parent)
+                    if (bustBones.Contains(c)) { isBust[i] = true; any = true; break; }
+            }
+            if (!any) return null;
+            var bpv = mesh.GetBonesPerVertex();
+            var weights = mesh.GetAllBoneWeights();
+            var res = new bool[mesh.vertexCount];
+            if (bpv.Length == 0) return null;
+            int wi = 0;
+            for (int v = 0; v < res.Length; v++)
+            {
+                float sum = 0f;
+                for (int k = 0; k < bpv[v]; k++, wi++)
+                {
+                    var bw = weights[wi];
+                    if (bw.boneIndex < isBust.Length && isBust[bw.boneIndex]) sum += bw.weight;
+                }
+                res[v] = sum >= 0.3f;
+            }
+            return res;
         }
 
         static int HideFeet(SkinnedMeshRenderer smr, BodyFitSolver.Posed posed, byte[] mask, Vector3 leftAnkle, Vector3 rightAnkle)

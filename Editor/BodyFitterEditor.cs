@@ -42,6 +42,7 @@ namespace Hinata.BodyFit.Editor
                             Prop(nameof(BodyFitter.looseRatio));
                         }
                         Prop(nameof(BodyFitter.hideFeetInShoes));
+                        Prop(nameof(BodyFitter.fitBust));
                     }
 
                 _foldSolver = EditorGUILayout.Foldout(_foldSolver, "貫通補正", true);
