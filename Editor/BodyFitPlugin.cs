@@ -261,6 +261,7 @@ namespace Hinata.BodyFit.Editor
                         Falloff = f.falloff,
                         LayerDistance = f.layerFollowDistance,
                         FitBust = f.fitBust,
+                        KeepHiddenLayers = f.keepHiddenLayers,
                     }, passive);
                 Lap("ソルバー");
                 int islands = BodyFitSolver.FollowIslands(prepared.Select(p => p.t).ToList(), f.islandMaxSize, 0.03f);

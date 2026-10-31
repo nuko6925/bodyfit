@@ -20,6 +20,7 @@ namespace Hinata.BodyFit.Editor
             public float Falloff;        // なじませ範囲 (m)
             public float LayerDistance;  // レイヤー結合の距離 (m)
             public bool FitBust;         // 胸の余りを詰める
+            public bool KeepHiddenLayers;// 表地が体の外にあれば、内側の層のめり込みは直さない
         }
 
         internal struct Result
@@ -136,8 +137,8 @@ namespace Hinata.BodyFit.Editor
             var qpos = new Vector3[n];     // 前回問い合わせ時の位置
             var bodyOff = new Vector3[n];  // 初期位置での 体の最近傍点 → 粒子 (外向きの判定用)
             var initInside = new bool[n];
+            var isCand = new bool[n];
             {
-                var isCand = new bool[n];
                 Parallel.For(0, n, p =>
                 {
                     if (pinned[p]) return;
@@ -517,6 +518,15 @@ namespace Hinata.BodyFit.Editor
                     lastDist[p] = (x[p] - q).magnitude;
                     float signed = Vector3.Dot(x[p] - q, nn);
                     bool hit = signed < tgt;
+
+                    // 外側の層 (表地) が体の外にあるなら、この内側の層 (裏地・襟の内側など) はめり込んでいても見えない。
+                    // 押し出すと表地まで押し出されて不自然に膨らむので、そのままにする
+                    if (hit && prm.KeepHiddenLayers && Covered(p))
+                    {
+                        lastSigned[p] = signed;
+                        if (last) hitFwd[p] = false;
+                        return;
+                    }
                     bool done = false;
                     // 深く埋まっている: 最近傍点は反対側の面のことがあるので、ボーンの軸から外向きに抜ける
                     if (signed < -0.005f && radial[p].sqrMagnitude > 0.5f &&
@@ -613,6 +623,20 @@ namespace Hinata.BodyFit.Editor
                     if (c > 0) d1[p] = sum;
                 });
                 for (int p = 0; p < n; p++) x[p] += d1[p];
+            }
+
+            bool Covered(int p)
+            {
+                for (int k = 0; k < K; k++)
+                {
+                    int idx = p * K + k;
+                    int q = pn[idx];
+                    if (q < 0) break;
+                    if (pW[idx] > 0f) continue;              // 相手は自分より内側 (または不明)
+                    if (owner[q] != owner[p] && layer[q] < layer[p]) continue;
+                    if (!isCand[q] || lastSigned[q] > margin[q]) return true; // 外側の層が体の外にある
+                }
+                return false;
             }
 
             void Add(int p, Vector3 v)

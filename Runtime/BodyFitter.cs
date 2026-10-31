@@ -99,6 +99,10 @@ namespace Hinata.BodyFit
         [Tooltip("体の細かい凹凸 (胸の先・へそ・谷間など) を、布が張ったようにならしてから判定する範囲 (m)。服に体の細部の形が浮き出るのを防ぐ (目安 0.01〜0.015)。0 で無効。重ね着の多い衣装では崩れることがある")]
         [Min(0f)] public float bodySmoothing = 0f;
 
+        [Tooltip("表地が体の外にあれば、その内側の層 (裏地・襟やフードの内側など) が体にめり込んでいても押し出さない。" +
+                 "見えない層を押し出して表地まで不自然に膨らむのを防ぐ")]
+        public bool keepHiddenLayers = true;
+
         [Tooltip("押し出した部分の周囲がなじむ範囲 (m)")]
         [Min(0.001f)] public float falloff = 0.03f;
 
