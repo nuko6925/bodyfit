@@ -210,11 +210,26 @@ namespace Hinata.BodyFit.Editor
             var snap = new Dictionary<Transform, Vector3>();
             var bdSnap = new Dictionary<BoneData, Vector3>();
 
+            // --- 上半身の位置合わせ ---
+            //   骨の位置が合っていても、元のアバターとは骨に対する胸や肩の高さが違うため、衣装の胴体が体に対して
+            //   上下・前後にずれていることがある (首元〜胸の上だけがめり込む等)。
+            //   胴体の生地を少しずつ動かして体へのめり込みが一番少ない位置を探し、上半身 (胴・腕) の衣装全体をその分動かす
+            var upperIds = new HashSet<HumanBodyBones>
+            {
+                HumanBodyBones.Spine, HumanBodyBones.Chest, HumanBodyBones.UpperChest,
+                HumanBodyBones.LeftUpperArm, HumanBodyBones.RightUpperArm, HumanBodyBones.LeftLowerArm, HumanBodyBones.RightLowerArm,
+                HumanBodyBones.LeftHand, HumanBodyBones.RightHand,
+            };
+            var upperShift = FindUpperShift(avatarRoot, bodies, clothVerts, map, opt, out string shiftLog);
+            if (shiftLog != null) log.AppendLine(shiftLog);
+            Vector3 GOf(BoneData b) => b != null && upperIds.Contains(b.Id) ? upperShift : Vector3.zero;
+            var head = animator.GetBoneTransform(HumanBodyBones.Head);
+
             foreach (var (world, bone, mi) in clothVerts)
                 if (map.TryGetValue(bone, out var bd))
                 {
                     snap.TryGetValue(bone, out var sd);
-                    bd.Cloth.Add(bd.ToLocal.MultiplyPoint3x4(world + sd));
+                    bd.Cloth.Add(bd.ToLocal.MultiplyPoint3x4(world + sd + GOf(bd)));
                     bd.ClothMesh.Add(mi);
                 }
 
@@ -302,7 +317,7 @@ namespace Hinata.BodyFit.Editor
                     if (!proxies.TryGetValue(key, out var proxy))
                     {
                         Vector3? c = centroid.TryGetValue((t, mi), out var cv) ? cv : (Vector3?)null;
-                        proxy = MakeProxy(t, c, map, snap, owner, bdSnap, avatarRoot, created, ref followed);
+                        proxy = MakeProxy(t, c, map, snap, owner, bdSnap, avatarRoot, created, ref followed, GOf, head);
                         proxies[key] = proxy;
                     }
                     if (proxy == null) continue;
@@ -349,9 +364,70 @@ namespace Hinata.BodyFit.Editor
             return result;
         }
 
+        /// <summary>
+        /// 胴体 (Spine / Chest / UpperChest) に付く衣装の頂点を、上下・前後に 5mm 刻みで動かしてみて、
+        /// 体へのめり込みの合計が一番小さくなる移動量を返す。改善が小さければ 0。
+        /// </summary>
+        static Vector3 FindUpperShift(Transform avatarRoot, IList<SkinnedMeshRenderer> bodies,
+                                      List<(Vector3 world, Transform bone, int mesh)> clothVerts,
+                                      Dictionary<Transform, BoneData> map, Options opt, out string log)
+        {
+            log = null;
+            var samples = new List<Vector3>();
+            foreach (var (world, bone, _) in clothVerts)
+                if (map.TryGetValue(bone, out var bd) &&
+                    (bd.Id == HumanBodyBones.Spine || bd.Id == HumanBodyBones.Chest || bd.Id == HumanBodyBones.UpperChest))
+                    samples.Add(world);
+            if (samples.Count < 50) return Vector3.zero;
+            int stride = Mathf.Max(1, samples.Count / 1500);
+            var pts = new List<Vector3>();
+            for (int i = 0; i < samples.Count; i += stride) pts.Add(samples[i]);
+
+            var col = new BodyFitSolver.Collider();
+            foreach (var b in bodies)
+                col.Add(BodyFitSolver.Pose(b, b.sharedMesh), BodyFitSolver.Pose(b, b.sharedMesh, applyBlendShapes: false));
+            col.Build(0.01f);
+
+            var up = avatarRoot.up;
+            var fwd = Vector3.ProjectOnPlane(opt.Forward.sqrMagnitude > 0.5f ? opt.Forward : avatarRoot.forward, up).normalized;
+            float ease = Mathf.Max(opt.Ease, 0.001f);
+
+            float Cost(Vector3 g)
+            {
+                var sum = new double[pts.Count];
+                System.Threading.Tasks.Parallel.For(0, pts.Count, i =>
+                {
+                    var p = pts[i] + g;
+                    if (!col.Closest(p, 0.08f, out var q, out var n, out _, out var why)) return;
+                    if (why == BodyFitSolver.InsideReason.Boundary) return;
+                    float s = Vector3.Dot(p - q, n);
+                    if (s < ease) sum[i] = ease - s;
+                });
+                return (float)sum.Sum();
+            }
+
+            float c0 = Cost(Vector3.zero);
+            if (c0 <= 1e-4f) return Vector3.zero;
+            float best = c0; Vector3 bestG = Vector3.zero;
+            for (int iu = -2; iu <= 6; iu++)
+            for (int jf = -2; jf <= 6; jf++)
+            {
+                if (iu == 0 && jf == 0) continue;
+                var g = up * (iu * 0.005f) + fwd * (jf * 0.005f);
+                float c = Cost(g);
+                // ほぼ同じなら動かす量が小さいほうを選ぶ
+                if (c < best * 0.97f || (c <= best * 1.03f && g.sqrMagnitude < bestG.sqrMagnitude)) { best = c; bestG = g; }
+            }
+            if (best > c0 * 0.8f) bestG = Vector3.zero; // 2 割以上減らないなら動かさない
+            log = $"    上半身の位置合わせ: 上へ {Vector3.Dot(bestG, up) * 1000f:0.0}mm / 前へ {Vector3.Dot(bestG, fwd) * 1000f:0.0}mm" +
+                  $"  (めり込みの合計 {c0 * 1000f:0} → {(bestG == Vector3.zero ? c0 : best) * 1000f:0} mm, {pts.Count} 点)";
+            return bestG;
+        }
+
         static Transform MakeProxy(Transform t, Vector3? centroid, Dictionary<Transform, BoneData> map, Dictionary<Transform, Vector3> snap,
                                    Dictionary<Transform, BoneData> owner, Dictionary<BoneData, Vector3> bdSnap,
-                                   Transform root, List<Transform> created, ref int followed)
+                                   Transform root, List<Transform> created, ref int followed,
+                                   System.Func<BoneData, Vector3> gOf, Transform head)
         {
             // 関節に相当するが頂点を直接持たない衣装ボーン: 平行移動のみ
             if (!map.ContainsKey(t) && snap.TryGetValue(t, out var jd))
@@ -360,6 +436,7 @@ namespace Hinata.BodyFit.Editor
             if (map.TryGetValue(t, out var bd))
             {
                 snap.TryGetValue(t, out var sd);
+                sd += gOf(bd);
                 if (!bd.HasEffect && sd.sqrMagnitude < 1e-8f) return null;
                 var off = t.InverseTransformVector(bd.Offset + sd);
                 // 倍率は対象ボーン (bd.Bone) の軸で決めているので、向きの違うボーンでは
@@ -392,6 +469,11 @@ namespace Hinata.BodyFit.Editor
                 }
                 // a に MA Scale Adjuster (関節合わせでアバターから写したもの等) が付いていれば、その拡縮も含める。
                 // Scale Adjuster は a に直接割り当てられたメッシュにしか効かないので、子ボーンに付いた小物 (胸元のリボン等) は置いていかれる
+                // 上半身の位置合わせ: 区間の外 (フードなど) も一緒に動かす。ただし頭の下 (帽子など) は動かさない
+                bool underHead = false;
+                for (var h = t; h != null && h != root; h = h.parent) if (h == head) { underHead = true; break; }
+                if (!underHead) asd += gOf(abd);
+
                 var maProxy = a.Find("ScaleProxy");
                 var maScale = maProxy != null ? maProxy.localScale : Vector3.one;
                 bool hasMa = (maScale - Vector3.one).sqrMagnitude > 1e-6f;
@@ -638,43 +720,7 @@ namespace Hinata.BodyFit.Editor
                 }
             }
 
-            // 胴体の前後ずれ: 前側がめり込み気味で背中側が空いているなら、前後の隙間が揃うまで衣装を前へずらす。
-            // (衣装の胴体がアバターより後ろに付いていると、首元〜胸の上だけが押し出されて段差になる)
-            // 左右は胸などで非対称なのでずらさない
             string torsoShift = "";
-            if (!limb && bd.Coverage >= 0.75f && opt.Forward.sqrMagnitude > 0.5f)
-            {
-                var fl = bd.ToLocal.MultiplyVector(opt.Forward);
-                var f2 = new Vector2(fl[u], fl[w]);
-                if (f2.magnitude > 0.5f)
-                {
-                    f2.Normalize();
-                    var gf = new List<float>(); var gb = new List<float>();
-                    for (int i = 0; i < Slices; i++)
-                    for (int j = 0; j < Sectors; j++)
-                    {
-                        if (bodyR[i, j] <= 0f || clothR[i, j] == float.MaxValue) continue;
-                        float ang = -Mathf.PI + (j + 0.5f) * 2f * Mathf.PI / Sectors;
-                        float dot = Mathf.Cos(ang) * f2.x + Mathf.Sin(ang) * f2.y;
-                        float g = clothR[i, j] - bodyR[i, j];
-                        if (dot > 0.7f) gf.Add(g);
-                        else if (dot < -0.7f) gb.Add(g);
-                    }
-                    if (gf.Count >= 3 && gb.Count >= 3)
-                    {
-                        gf.Sort(); gb.Sort();
-                        float mf = gf[gf.Count / 2], mb = gb[gb.Count / 2];
-                        float d = Mathf.Min((mb - mf) * 0.5f, 0.04f);
-                        if (mf < opt.Ease + 0.005f && d > 0.003f)
-                        {
-                            var dl = Vector3.zero; dl[u] = f2.x * d; dl[w] = f2.y * d;
-                            bd.Offset = bd.Bone.rotation * dl;
-                            FillCloth(dl);
-                            torsoShift = $" / 前へ {d * 1000f:0.0}mm (前の隙間 {mf * 1000f:0.0} / 背中 {mb * 1000f:0.0})";
-                        }
-                    }
-                }
-            }
 
             // 角度ごとに u 方向 / w 方向へ振り分けて比を集める
             var ru = new List<float>(); var rw = new List<float>();
